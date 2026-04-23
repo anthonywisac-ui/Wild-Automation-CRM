@@ -233,7 +233,12 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
     if not bot:
         raise HTTPException(404, "Bot not found")
-    allowed = {"name", "business_name", "language", "meta_token", "phone_number_id", "waba_id", "verify_token", "manager_number", "ai_provider", "ai_api_key", "system_prompt", "webhook_url"}
+    allowed = {
+        "name", "bot_type", "business_name", "language", "meta_token",
+        "phone_number_id", "waba_id", "verify_token", "manager_number",
+        "ai_provider", "ai_api_key", "system_prompt", "webhook_url",
+        "config_json", "tax_rate", "delivery_fee", "business_niche"
+    }
     for k, v in data.items():
         if k in allowed:
             setattr(bot, k, v)
