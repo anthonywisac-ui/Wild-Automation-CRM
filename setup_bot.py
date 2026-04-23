@@ -19,10 +19,8 @@ def setup_platform():
             db.add(admin)
             db.commit()
             print("Admin user 'admin' created.")
-        else:
-            print("Admin user already exists.")
 
-        # 2. Create Restaurant Bot if missing
+        # 2. Create/Update Restaurant Bot
         bot = db.query(WhatsappBot).filter(WhatsappBot.name == "Wild Restaurant").first()
         if not bot:
             bot = WhatsappBot(
@@ -38,10 +36,8 @@ def setup_platform():
             db.commit()
             db.refresh(bot)
             print(f"Bot '{bot.name}' created.")
-        else:
-            print(f"Bot '{bot.name}' already exists.")
 
-        # 3. Comprehensive Menu & Logic Config
+        # 3. Comprehensive Menu & Logic Config (Aligned with flow.py)
         config = {
             "categories": [
                 {
@@ -51,9 +47,9 @@ def setup_platform():
                     "prefix": "DL",
                     "display": "featured",
                     "items": [
-                        {"id": "DL1", "name": "Solo Feast", "price": 12.00, "desc": "1 Burger + 1 Fries + 1 Coke", "emoji": "🍱"},
-                        {"id": "DL2", "name": "Duo Pack", "price": 22.00, "desc": "2 Classic Burgers + 2 Drinks", "emoji": "👫"},
-                        {"id": "DL3", "name": "Family Pizza Night", "price": 35.00, "desc": "2 Large Pizzas + 4 Drinks + Garlic Bread", "emoji": "👨‍👩‍👧‍👦"}
+                        {"id": "DL1", "name": "Burger Combo Deal", "price": 14.99, "desc": "1 Burger + Fries + Drink", "emoji": "🍱"},
+                        {"id": "DL2", "name": "Duo Burger Pack", "price": 22.00, "desc": "2 Classic Burgers + 2 Sodas", "emoji": "👫"},
+                        {"id": "DL3", "name": "Pizza & Wings Deal", "price": 28.00, "desc": "1 Large Pizza + 6 Wings + 2 Sodas", "emoji": "🍕"}
                     ]
                 },
                 {
@@ -63,9 +59,8 @@ def setup_platform():
                     "prefix": "FF",
                     "display": "list",
                     "items": [
-                        {"id": "FF1", "name": "Truffle Smash", "price": 14.50, "desc": "Wagyu beef, truffle aioli, swiss cheese", "emoji": "💎"},
-                        {"id": "FF2", "name": "Spicy Zinger", "price": 11.99, "desc": "Fried chicken, jalapeños, spicy mayo", "emoji": "🔥"},
-                        {"id": "FF3", "name": "The Beast", "price": 18.00, "desc": "Triple patty, bacon, fried egg", "emoji": "🦖"}
+                        {"id": "FF1", "name": "Classic Smash", "price": 12.50, "desc": "Wagyu beef, secret sauce, cheese", "emoji": "🍔"},
+                        {"id": "FF2", "name": "Spicy Zinger", "price": 11.99, "desc": "Fried chicken, jalapeños, spicy mayo", "emoji": "🔥"}
                     ]
                 },
                 {
@@ -75,8 +70,8 @@ def setup_platform():
                     "prefix": "PZ",
                     "display": "grid",
                     "items": [
-                        {"id": "PZ1", "name": "Burrata Dream", "price": 16.00, "desc": "Fresh burrata, basil, balsamic glaze", "emoji": "🌿"},
-                        {"id": "PZ2", "name": "Meat Overload", "price": 15.50, "desc": "Pepperoni, sausage, ham, bacon", "emoji": "🍖"}
+                        {"id": "PZ1", "name": "Margherita", "price": 14.00, "desc": "Fresh burrata, basil, tomato", "emoji": "🌿"},
+                        {"id": "PZ2", "name": "Meat Feast", "price": 16.50, "desc": "Pepperoni, ham, bacon, beef", "emoji": "🍖"}
                     ]
                 },
                 {
@@ -86,19 +81,19 @@ def setup_platform():
                     "prefix": "BB",
                     "display": "list",
                     "items": [
-                        {"id": "BB1", "name": "Half Rack Ribs", "price": 19.50, "desc": "Fall-off-the-bone ribs with honey glaze", "emoji": "🔥", "requires_sides": True},
-                        {"id": "BB2", "name": "Brisket Plate", "price": 21.00, "desc": "12-hour smoked brisket slices", "emoji": "🥩", "requires_sides": True}
+                        {"id": "BB1", "name": "Baby Back Ribs", "price": 19.50, "desc": "Full rack with honey BBQ glaze", "emoji": "🍖", "requires_sides": True},
+                        {"id": "BB2", "name": "Smoked Brisket", "price": 21.00, "desc": "12-hour slow smoked brisket", "emoji": "🥩", "requires_sides": True}
                     ]
                 },
                 {
                     "id": "cat_desserts",
-                    "name": "SWEET UPSELLS",
+                    "name": "DESSERTS",
                     "type": "upsell",
                     "prefix": "DS",
                     "display": "grid",
                     "items": [
-                        {"id": "DS1", "name": "Nutella Crepe", "price": 7.50, "desc": "Served with strawberries and cream", "emoji": "🥞"},
-                        {"id": "DS2", "name": "Warm Brownie", "price": 6.00, "desc": "With a scoop of vanilla bean ice cream", "emoji": "🍨"}
+                        {"id": "DS1", "name": "Lava Cake", "price": 7.50, "desc": "Warm chocolate with ice cream", "emoji": "🍫"},
+                        {"id": "DS2", "name": "NY Cheesecake", "price": 6.50, "desc": "Classic creamy with berries", "emoji": "🍰"}
                     ]
                 },
                 {
@@ -108,24 +103,11 @@ def setup_platform():
                     "prefix": "DR",
                     "display": "list",
                     "items": [
-                        {"id": "DR1", "name": "Iced Berry Tea", "price": 4.50, "desc": "House-made with fresh berries", "emoji": "🍓"},
-                        {"id": "DR2", "name": "Vanilla Milkshake", "price": 5.50, "desc": "Extra thick and creamy", "emoji": "🍦"}
+                        {"id": "DR1", "name": "Coca Cola", "price": 2.50, "desc": "Cold 330ml can", "emoji": "🥤"},
+                        {"id": "DR2", "name": "Mineral Water", "price": 1.50, "desc": "Refreshing spring water", "emoji": "💧"}
                     ]
                 }
-            ],
-            "upsell_logic": {
-                "threshold": 30.0,
-                "suggest_category": "cat_desserts",
-                "message": "You're already treating yourself! Why not add a little sweetness to your meal?"
-            },
-            "deals_logic": {
-                "free_delivery_over": 50.0,
-                "discount_over_100": 10.0,
-                "combos": {
-                    "DL1": ["FF1", "DR1", "Sides: Fries"],
-                    "DL2": ["FF1", "FF1", "DR1", "DR1"]
-                }
-            }
+            ]
         }
 
         bot.config_json = json.dumps(config)
@@ -138,11 +120,6 @@ def setup_platform():
 
         db.commit()
         print(f"Full Configuration Pushed to Bot: {bot.name}")
-        print("\n--- Summary ---")
-        print(f"Categories: {len(config['categories'])}")
-        print(f"Total Items: {sum(len(c['items']) for c in config['categories'])}")
-        print(f"Upsell Threshold: ${config['upsell_logic']['threshold']}")
-        print("----------------\n")
         print("Your bot is now fully loaded and ready for orders!")
 
     except Exception as e:
