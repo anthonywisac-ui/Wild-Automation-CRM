@@ -1,0 +1,14 @@
+{
+  "deals": {
+    "name": "🔥 Deals",
+    "items": {
+      "DL1": {"name": "Burger Combo", "price": 4.99, "emoji": "🔥", "desc": "Add fries + soda"}
+    }
+  },
+  "fastfood": {
+    "name": "🍔 Burgers",
+    "items": {
+      "FF1": {"name": "Classic Smash Burger", "price": 12.99, "emoji": "🍔", "desc": "Double patty"}
+    }
+  }
+}

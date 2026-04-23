@@ -1,0 +1,600 @@
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+from typing import List, Optional
+from pydantic import BaseModel
+import os
+import json
+import requests
+import traceback
+from groq import Groq
+
+from db import (
+    get_db, get_user_by_username, decode_token, User,
+    Contact, Deal, Call, VapiAgent, WhatsappBot,
+    get_contacts, create_contact, get_deals, create_deal,
+    get_calls, create_call, get_vapi_agents, create_vapi_agent,
+    get_whatsapp_bots, create_whatsapp_bot
+)
+from auth import get_current_user
+
+router = APIRouter(prefix="/api/crm", tags=["CRM"])
+
+# ========== Contacts ==========
+@router.get("/contacts")
+def get_contacts_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return get_contacts(db, current_user.id)
+
+@router.post("/contacts")
+def create_contact_api(contact: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return create_contact(db, current_user.id, contact)
+
+@router.put("/contacts/{contact_id}")
+def update_contact_api(contact_id: int, contact: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_contact = db.query(Contact).filter(Contact.id == contact_id, Contact.owner_id == current_user.id).first()
+    if not db_contact:
+        raise HTTPException(404, "Contact not found")
+    for key, value in contact.items():
+        setattr(db_contact, key, value)
+    db.commit()
+    db.refresh(db_contact)
+    return db_contact
+
+# ========== Deals ==========
+@router.get("/deals")
+def get_deals_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return get_deals(db, current_user.id)
+
+@router.post("/deals")
+def create_deal_api(deal: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return create_deal(db, current_user.id, deal)
+
+@router.put("/deals/{deal_id}")
+def update_deal_api(deal_id: int, deal: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_deal = db.query(Deal).filter(Deal.id == deal_id, Deal.owner_id == current_user.id).first()
+    if not db_deal:
+        raise HTTPException(404, "Deal not found")
+    for key, value in deal.items():
+        setattr(db_deal, key, value)
+    db.commit()
+    db.refresh(db_deal)
+    return db_deal
+
+# ========== Calls ==========
+@router.get("/calls")
+def get_calls_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return get_calls(db, current_user.id)
+
+@router.post("/calls")
+def create_call_api(call: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return create_call(db, current_user.id, call)
+
+@router.get("/calls/kpis")
+def get_kpis_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user_calls = get_calls(db, current_user.id)
+    total = len(user_calls)
+    resolved = len([c for c in user_calls if c.outcome == "Resolved"])
+    missed = len([c for c in user_calls if c.direction == "Missed"])
+    fcr = round(resolved / total * 100) if total else 0
+    durations = [c.duration_minutes for c in user_calls if c.duration_minutes and c.duration_minutes > 0]
+    avg_dur = sum(durations) / len(durations) if durations else 0
+    mins = int(avg_dur)
+    secs = int((avg_dur - mins) * 60)
+    aht = f"{mins}:{secs:02d}"
+    return {"total": total, "fcr": fcr, "missed": missed, "aht": aht, "avg_duration": round(avg_dur, 1)}
+
+# ========== Vapi Agents ==========
+class VapiAgentCreate(BaseModel):
+    name: str
+    vapi_api_key: str
+    vapi_agent_id: str
+    phone_number_id: Optional[str] = None
+    first_message: str
+    system_prompt: str
+    voice: str = "Alloy"
+    crm_sync: bool = False
+    webhook_url: str
+
+@router.get("/vapi/agents")
+def get_vapi_agents_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    agents = db.query(VapiAgent).filter(VapiAgent.owner_id == current_user.id).all()
+    return [{
+        "id": a.id,
+        "name": a.name,
+        "status": a.status,
+        "last_call": a.last_call.isoformat() if a.last_call else None,
+        "total_calls": a.total_calls,
+        "conversion_rate": a.conversion_rate
+    } for a in agents]
+
+@router.post("/vapi/agents")
+def create_vapi_agent_api(agent_data: VapiAgentCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    existing = db.query(VapiAgent).filter(VapiAgent.owner_id == current_user.id, VapiAgent.name == agent_data.name).first()
+    if existing:
+        raise HTTPException(400, "Agent name already exists")
+    new_agent = VapiAgent(
+        owner_id=current_user.id,
+        name=agent_data.name,
+        vapi_api_key=agent_data.vapi_api_key,
+        vapi_agent_id=agent_data.vapi_agent_id,
+        phone_number_id=agent_data.phone_number_id or "",
+        first_message=agent_data.first_message,
+        system_prompt=agent_data.system_prompt,
+        voice=agent_data.voice,
+        crm_sync=agent_data.crm_sync,
+        webhook_url=agent_data.webhook_url,
+        status="Draft",
+        total_calls=0,
+        conversion_rate=0.0
+    )
+    db.add(new_agent)
+    db.commit()
+    db.refresh(new_agent)
+    return {"id": new_agent.id, "message": "Agent created"}
+
+@router.delete("/vapi/agents/{agent_id}")
+def delete_vapi_agent(agent_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    agent = db.query(VapiAgent).filter(VapiAgent.id == agent_id, VapiAgent.owner_id == current_user.id).first()
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    db.delete(agent)
+    db.commit()
+    return {"message": "Agent deleted"}
+
+@router.post("/vapi/agents/{agent_id}/test-call")
+def test_vapi_call(agent_id: int, payload: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    agent = db.query(VapiAgent).filter(VapiAgent.id == agent_id, VapiAgent.owner_id == current_user.id).first()
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    phone = payload.get("phone")
+    if not phone:
+        raise HTTPException(400, "Phone number required")
+    # Simulate call initiation
+    return {"message": f"Test call initiated to {phone}"}
+
+@router.get("/vapi/agents/stats")
+def get_vapi_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    agents = db.query(VapiAgent).filter(VapiAgent.owner_id == current_user.id).all()
+    total_calls = sum(a.total_calls for a in agents)
+    hot_leads = 0  # mock
+    return {"total_calls": total_calls, "hot_leads": hot_leads}
+
+# ========== WhatsApp Bots ==========
+@router.get("/bots")
+def get_bots_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return get_whatsapp_bots(db, current_user.id)
+
+@router.post("/bots")
+def create_bot_api(bot: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return create_whatsapp_bot(db, current_user.id, bot)
+
+class WhatsappBotCreate(BaseModel):
+    name: str
+    bot_type: str
+    business_name: Optional[str] = None
+    language: Optional[str] = "en"
+    meta_token: Optional[str] = None
+    phone_number_id: Optional[str] = None
+    waba_id: Optional[str] = None
+    verify_token: Optional[str] = None
+    manager_number: Optional[str] = None
+    ai_provider: Optional[str] = "gemini"
+    ai_api_key: Optional[str] = None
+    system_prompt: Optional[str] = None
+    google_sheet_id: Optional[str] = None
+    google_creds_json: Optional[str] = None
+    stripe_secret_key: Optional[str] = None
+    webhook_url: Optional[str] = None
+
+@router.post("/bots/whatsapp")
+def create_whatsapp_bot_endpoint(
+    bot_data: WhatsappBotCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    existing = db.query(WhatsappBot).filter(
+        WhatsappBot.owner_id == current_user.id,
+        WhatsappBot.name == bot_data.name
+    ).first()
+    if existing:
+        raise HTTPException(400, "Bot name already exists")
+    new_bot = WhatsappBot(
+        owner_id=current_user.id,
+        name=bot_data.name,
+        bot_type=bot_data.bot_type,
+        business_name=bot_data.business_name or "",
+        language=bot_data.language or "en",
+        meta_token=bot_data.meta_token or "",
+        phone_number_id=bot_data.phone_number_id or "",
+        waba_id=bot_data.waba_id or "",
+        verify_token=bot_data.verify_token or "",
+        manager_number=bot_data.manager_number or "",
+        ai_provider=bot_data.ai_provider or "gemini",
+        ai_api_key=bot_data.ai_api_key or "",
+        system_prompt=bot_data.system_prompt or "",
+        google_sheet_id=bot_data.google_sheet_id or "",
+        google_creds_json=bot_data.google_creds_json or "",
+        stripe_secret_key=bot_data.stripe_secret_key or "",
+        webhook_url=bot_data.webhook_url or ""
+    )
+    db.add(new_bot)
+    db.commit()
+    db.refresh(new_bot)
+    user_bots = current_user.bots
+    if bot_data.name not in user_bots:
+        user_bots.append(bot_data.name)
+        current_user.bots = user_bots
+        db.commit()
+    return {
+        "id": new_bot.id,
+        "name": new_bot.name,
+        "message": "Bot created successfully",
+        "webhook_url": bot_data.webhook_url or f"https://{os.getenv('DOMAIN', 'yourdomain.com')}/webhook"
+    }
+
+# ========== Dashboard Stats ==========
+@router.get("/stats")
+def get_stats_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    contacts = get_contacts(db, current_user.id)
+    deals = get_deals(db, current_user.id)
+    active_deals = [d for d in deals if d.stage != "Lost"]
+    pipeline_value = sum(d.value for d in active_deals)
+    hot_leads = len([c for c in contacts if c.status == "Hot Lead"])
+    return {
+        "contacts": len(contacts),
+        "deals": len(active_deals),
+        "pipeline_value": pipeline_value,
+        "hot_leads": hot_leads
+    }
+
+# ========== User Overview ==========
+@router.get("/user/overview")
+def get_user_overview(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # WhatsApp bots
+    whatsapp_bots = db.query(WhatsappBot).filter(WhatsappBot.owner_id == current_user.id).all()
+    whatsapp_list = []
+    for bot in whatsapp_bots:
+        whatsapp_list.append({
+            "name": bot.name,
+            "status": "live" if bot.webhook_url else "offline",
+            "messages_today": 0,
+            "total_conversations": 0,
+            "last_activity": bot.created_at.isoformat() if bot.created_at else None
+        })
+    # Vapi agents
+    vapi_agents = db.query(VapiAgent).filter(VapiAgent.owner_id == current_user.id).all()
+    vapi_list = []
+    for agent in vapi_agents:
+        vapi_list.append({
+            "name": agent.name,
+            "status": agent.status,
+            "total_calls": agent.total_calls,
+            "conversion_rate": agent.conversion_rate,
+            "calls_today": 0
+        })
+    # Recent conversations (mock)
+    recent_conversations = [
+        {"contact": "Ahmed", "bot_name": "Restaurant Bot", "last_message": "I want to order", "time": datetime.now().isoformat(), "unread": True},
+        {"contact": "Sara", "bot_name": "Sales Agent", "last_message": "Call resolved", "time": (datetime.now() - timedelta(hours=1)).isoformat(), "unread": False}
+    ]
+    # Stats
+    stats = {
+        "total_messages": 0,
+        "total_calls": sum(a.total_calls for a in vapi_agents),
+        "total_leads": len([c for c in get_contacts(db, current_user.id) if c.status == "Hot Lead"]),
+        "conversion_rate": round((sum(a.conversion_rate for a in vapi_agents) / len(vapi_agents)) if vapi_agents else 0, 1)
+    }
+    return {
+        "whatsapp_bots": whatsapp_list,
+        "vapi_agents": vapi_list,
+        "recent_conversations": recent_conversations,
+        "stats": stats
+    }
+
+# ========== Settings Endpoints ==========
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.post("/settings/change-password")
+def change_password(req: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from db import verify_password, hash_password
+    if not verify_password(req.current_password, current_user.hashed_password):
+        raise HTTPException(400, "Current password is incorrect")
+    current_user.hashed_password = hash_password(req.new_password)
+    db.commit()
+    return {"message": "Password updated"}
+
+class UserConfig(BaseModel):
+    ai_provider: str = "gemini"
+    ai_api_key: str = ""
+    default_voice: str = "Alloy"
+    default_first_message: str = "Hello, how can I help you?"
+
+@router.get("/settings/my-config")
+def get_my_config(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user_config = get_user_config_safe(current_user)
+    return {
+        "ai_provider": user_config.get("ai_provider", "gemini"),
+        "ai_api_key": user_config.get("ai_api_key", ""),
+        "default_voice": user_config.get("default_voice", "Alloy"),
+        "default_first_message": user_config.get("default_first_message", "Hello, how can I help you?")
+    }
+
+@router.post("/settings/save-config")
+def save_config(config: UserConfig, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user_data = {}
+    if current_user.bots_json:
+        try:
+            parsed = json.loads(current_user.bots_json)
+            if isinstance(parsed, dict):
+                user_data = parsed
+            elif isinstance(parsed, list):
+                user_data = {"bots": parsed}
+        except:
+            user_data = {}
+    user_data["user_config"] = config.dict()
+    current_user.bots_json = json.dumps(user_data)
+    db.commit()
+    return {"message": "Configuration saved"}
+
+@router.post("/settings/save-config")
+def save_config(config: UserConfig, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Load existing data safely
+    user_data = {}
+    if current_user.bots_json:
+        try:
+            parsed = json.loads(current_user.bots_json)
+            if isinstance(parsed, dict):
+                user_data = parsed
+            elif isinstance(parsed, list):
+                user_data = {"bots": parsed}
+        except:
+            user_data = {}
+    # Update user_config
+    user_data["user_config"] = config.dict()
+    current_user.bots_json = json.dumps(user_data)
+    db.commit()
+    return {"message": "Configuration saved"}
+
+@router.post("/settings/test-ai")
+def test_ai(payload: dict, current_user: User = Depends(get_current_user)):
+    api_key = payload.get("api_key")
+    provider = payload.get("provider", "gemini")
+    if not api_key:
+        return {"success": False, "message": "No API key provided"}
+    if len(api_key) > 10:
+        return {"success": True, "message": "Connection successful"}
+    else:
+        return {"success": False, "message": "Invalid API key (test)"}
+
+@router.delete("/settings/delete-account")
+def delete_account(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db.query(Contact).filter(Contact.owner_id == current_user.id).delete()
+    db.query(Deal).filter(Deal.owner_id == current_user.id).delete()
+    db.query(Call).filter(Call.owner_id == current_user.id).delete()
+    db.query(VapiAgent).filter(VapiAgent.owner_id == current_user.id).delete()
+    db.query(WhatsappBot).filter(WhatsappBot.owner_id == current_user.id).delete()
+    db.delete(current_user)
+    db.commit()
+    return {"message": "Account deleted"}
+
+# ========== Admin Endpoints ==========
+def require_admin(current_user: User = Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(403, "Admin access required")
+    return current_user
+
+@router.get("/admin/users")
+def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    result = []
+    for u in users:
+        whatsapp_bots = db.query(WhatsappBot).filter(WhatsappBot.owner_id == u.id).all()
+        vapi_agents = db.query(VapiAgent).filter(VapiAgent.owner_id == u.id).all()
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "role": u.role,
+            "registered_at": u.created_at.isoformat(),
+            "whatsapp_bots": [b.name for b in whatsapp_bots],
+            "vapi_agents": [a.name for a in vapi_agents],
+            "is_suspended": u.is_suspended
+        })
+    return result
+
+@router.get("/admin/stats")
+def admin_stats(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    total_users = db.query(User).count()
+    active_bots = db.query(WhatsappBot).count()
+    active_agents = db.query(VapiAgent).filter(VapiAgent.status == "Live").count()
+    return {"total_users": total_users, "active_bots": active_bots, "active_agents": active_agents, "total_revenue": 0}
+
+class AssignBotRequest(BaseModel):
+    username: str
+    bot_name: str
+
+@router.post("/admin/assign-bot")
+def assign_bot(req: AssignBotRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    user = get_user_by_username(db, req.username)
+    if not user:
+        raise HTTPException(404, "User not found")
+    bot = db.query(WhatsappBot).filter(WhatsappBot.name == req.bot_name).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    if bot.owner_id != user.id:
+        bot.owner_id = user.id
+        db.commit()
+    return {"message": f"Bot {req.bot_name} assigned to {req.username}"}
+
+class AssignVapiRequest(BaseModel):
+    username: str
+    agent_name: str
+
+@router.post("/admin/assign-vapi")
+def assign_vapi(req: AssignVapiRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    user = get_user_by_username(db, req.username)
+    if not user:
+        raise HTTPException(404, "User not found")
+    agent = db.query(VapiAgent).filter(VapiAgent.name == req.agent_name).first()
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    if agent.owner_id != user.id:
+        agent.owner_id = user.id
+        db.commit()
+    return {"message": f"Vapi agent {req.agent_name} assigned to {req.username}"}
+
+class SuspendUserRequest(BaseModel):
+    username: str
+    suspended: bool
+
+@router.post("/admin/suspend-user")
+def suspend_user(req: SuspendUserRequest, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    user = get_user_by_username(db, req.username)
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.is_suspended = req.suspended
+    db.commit()
+    return {"message": f"User {req.username} suspension set to {req.suspended}"}
+
+@router.delete("/admin/users/{user_id}")
+def delete_user_by_admin(user_id: int, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.id == admin.id:
+        raise HTTPException(400, "Cannot delete yourself")
+    db.delete(user)
+    db.commit()
+    return {"message": "User deleted"}
+
+# ========== Webhook Events ==========
+webhook_events = []
+
+@router.post("/crm/events")
+def receive_custom_event(event: dict, current_user: User = Depends(get_current_user)):
+    webhook_events.insert(0, {"type": "custom", "data": event, "time": datetime.now().isoformat()})
+    if len(webhook_events) > 100:
+        webhook_events.pop()
+    return {"status": "ok"}
+
+@router.get("/crm/events")
+def get_events(current_user: User = Depends(get_current_user)):
+    return webhook_events[:50]
+
+# ========== AI Chat Helper ==========
+
+# Helper function to safely get user config (reuse in both settings and chat)
+def get_user_config_safe(current_user: User) -> dict:
+    user_data = {}
+    if current_user.bots_json:
+        try:
+            parsed = json.loads(current_user.bots_json)
+            if isinstance(parsed, dict):
+                user_data = parsed
+            elif isinstance(parsed, list):
+                user_data = {"bots": parsed}
+        except:
+            user_data = {}
+    return user_data.get("user_config", {})
+
+def get_db_summary(current_user: User, db: Session) -> str:
+    if current_user.role == "admin":
+        contacts = db.query(Contact).all()
+        deals = db.query(Deal).all()
+        calls = db.query(Call).all()
+        whatsapp_bots = db.query(WhatsappBot).all()
+        vapi_agents = db.query(VapiAgent).all()
+        users = db.query(User).all()
+        summary = f"""
+DATABASE SUMMARY (Admin view):
+- Total users: {len(users)}
+- Total contacts: {len(contacts)} (hot leads: {sum(1 for c in contacts if c.status == 'Hot Lead')})
+- Total deals: {len(deals)} (pipeline value: ${sum(d.value for d in deals if d.stage != 'Lost')})
+- Total calls: {len(calls)} (resolved: {sum(1 for c in calls if c.outcome == 'Resolved')})
+- WhatsApp bots: {len(whatsapp_bots)}
+- Vapi agents: {len(vapi_agents)}
+"""
+    else:
+        contacts = db.query(Contact).filter(Contact.owner_id == current_user.id).all()
+        deals = db.query(Deal).filter(Deal.owner_id == current_user.id).all()
+        calls = db.query(Call).filter(Call.owner_id == current_user.id).all()
+        whatsapp_bots = db.query(WhatsappBot).filter(WhatsappBot.owner_id == current_user.id).all()
+        vapi_agents = db.query(VapiAgent).filter(VapiAgent.owner_id == current_user.id).all()
+        summary = f"""
+DATABASE SUMMARY (User: {current_user.username}):
+- Your contacts: {len(contacts)} (hot leads: {sum(1 for c in contacts if c.status == 'Hot Lead')})
+- Your deals: {len(deals)} (pipeline value: ${sum(d.value for d in deals if d.stage != 'Lost')})
+- Your calls: {len(calls)} (resolved: {sum(1 for c in calls if c.outcome == 'Resolved')})
+- Your WhatsApp bots: {len(whatsapp_bots)}
+- Your Vapi agents: {len(vapi_agents)}
+"""
+    return summary
+
+class ChatRequest(BaseModel):
+    messages: list
+
+# ========== AI Chat Endpoint ==========
+@router.post("/ai/chat")
+async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        user_config = get_user_config_safe(current_user)
+        provider = user_config.get("ai_provider", os.getenv("AI_PROVIDER", "groq"))
+        api_key = user_config.get("ai_api_key", os.getenv("GROQ_API_KEY", ""))
+        
+        # Debug: print to terminal to see what's being read
+        print(f"Provider: {provider}, API Key present: {bool(api_key)}")
+        
+        if not api_key:
+            return {"reply": "⚠️ Please configure your Groq API key in Settings > AI Provider first."}
+        
+        db_summary = get_db_summary(current_user, db)
+        system_prompt = f"""You are an AI assistant for a CRM + WhatsApp/Vapi bot platform.
+Your role is to help users understand their data and answer questions.
+
+{db_summary}
+
+Rules:
+- For admin users: you can answer any question about the system, database, or suggest improvements.
+- For normal users: only answer questions related to their own leads, contacts, deals, calls, bots.
+- If asked about something outside their data, politely say "You don't have permission to view that."
+- Be concise, helpful, and use markdown for lists/tables when useful.
+- Never reveal other users' data.
+
+Current user: {current_user.username} (role: {current_user.role})
+"""
+        
+        if provider == "groq":
+            client = Groq(api_key=api_key)
+            response = client.chat.completions.create(
+                model="llama3-70b-8192",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": req.messages[-1]["content"]}
+                ],
+                temperature=0.7,
+                max_tokens=800
+            )
+            reply = response.choices[0].message.content
+        else:
+            reply = f"Provider '{provider}' not yet supported. Please use Groq."
+        
+        return {"reply": reply}
+    
+    except ImportError as e:
+        return {"reply": f"❌ Missing package: {str(e)}. Please run: pip install groq"}
+    except Exception as e:
+        print("="*50)
+        print("AI Chat Error:")
+        traceback.print_exc()
+        print("="*50)
+        return {"reply": f"⚠️ AI service error: {str(e)}. Check your API key and try again."}
+# ========== Webhook Info ==========
+@router.get("/webhook/port")
+def get_webhook_port():
+    return 8000
+
+@router.get("/webhook/events")
+def get_webhook_events():
+    return {"count": 0, "last_event": None}

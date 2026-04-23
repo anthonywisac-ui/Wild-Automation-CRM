@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wild Automations CRM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+    <style>
+        .kanban-col { min-width: 280px; }
+        .tab-content { animation: slideIn 0.4s ease forwards; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans">
+
+<!-- ==================== LOGIN / REGISTER ==================== -->
+<div id="authContainer" class="min-h-screen flex items-center justify-center p-4">
+    <div class="card-premium w-full max-w-md p-10 animate-slide-in">
+        <div class="text-center mb-8">
+            <div class="gradient-bg w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl shadow-emerald-500/20">
+                <i class="fab fa-whatsapp text-3xl text-white"></i>
+            </div>
+            <h2 class="text-3xl font-bold tracking-tight">Welcome Back</h2>
+            <p class="text-slate-400 mt-2">Manage your automations with ease</p>
+        </div>
+        <div class="mb-6 flex p-1 bg-slate-900 rounded-xl">
+            <button id="loginTabBtn" class="flex-1 py-2 text-center font-bold text-emerald-400 bg-slate-800 rounded-lg shadow-sm">Login</button>
+            <button id="registerTabBtn" class="flex-1 py-2 text-center font-bold text-slate-500 hover:text-slate-300">Register</button>
+        </div>
+        <div id="loginForm" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Username</label>
+                <input type="text" id="loginUsername" placeholder="Enter your username" class="input-field">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Password</label>
+                <input type="password" id="loginPassword" placeholder="••••••••" class="input-field">
+            </div>
+            <button onclick="login()" class="w-full gradient-bg hover:opacity-90 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all mt-4">Sign In</button>
+            <div id="loginError" class="text-red-400 text-sm mt-2 text-center"></div>
+        </div>
+        <div id="registerForm" class="hidden space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">New Username</label>
+                <input type="text" id="regUsername" placeholder="Choose a username" class="input-field">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 uppercase mb-2">New Password</label>
+                <input type="password" id="regPassword" placeholder="Create a strong password" class="input-field">
+            </div>
+            <button onclick="register()" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all mt-4">Create Account</button>
+            <div id="registerError" class="text-red-400 text-sm mt-2 text-center"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MAIN DASHBOARD ==================== -->
+<div id="dashboardContainer" class="hidden">
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-[#0b1121] border-r border-slate-800 flex flex-col shadow-2xl">
+            <div class="p-6 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="gradient-bg p-2 rounded-xl shadow-lg shadow-emerald-500/20">
+                        <i class="fab fa-whatsapp text-xl text-white"></i>
+                    </div>
+                    <span class="font-bold text-xl tracking-tight gradient-text">Wild CRM</span>
+                </div>
+                <div class="text-xs text-gray-400 mt-1" id="userRoleBadge"></div>
+            </div>
+            <nav class="flex-1 p-3 space-y-1">
+                <button onclick="showTab('dashboard')" data-tab="dashboard" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-tachometer-alt w-5"></i> Dashboard</button>
+                <button onclick="showTab('contacts')" data-tab="contacts" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-users w-5"></i> Contacts</button>
+                <button onclick="showTab('pipeline')" data-tab="pipeline" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-chart-line w-5"></i> Pipeline</button>
+                <button onclick="showTab('calls')" data-tab="calls" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-phone-alt w-5"></i> Call Center</button>
+                <button onclick="showTab('ai')" data-tab="ai" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-robot w-5"></i> AI Assistant</button>
+                <button onclick="showTab('agents')" data-tab="agents" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-microphone-alt w-5"></i> Vapi Agents</button>
+                <button onclick="showTab('webhook')" data-tab="webhook" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-plug w-5"></i> Webhook Live</button>
+                <button onclick="showTab('settings')" data-tab="settings" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-cog w-5"></i> Settings</button>
+                
+                <div id="adminBotSection" class="hidden pt-4 mt-2 border-t border-gray-700">
+                    <div class="text-xs text-gray-400 px-3 mb-2">BOT MANAGEMENT</div>
+                    <button onclick="showTab('bot_create')" data-tab="bot_create" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-plus-circle w-5"></i> Create Bot</button>
+                    <button onclick="showTab('bot_assign')" data-tab="bot_assign" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-user-plus w-5"></i> Assign Bot</button>
+                    <button onclick="showTab('bot_list')" data-tab="bot_list" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-list w-5"></i> All Bots</button>
+                    <button onclick="showTab('builder')" data-tab="builder" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-magic w-5"></i> Bot Builder</button>
+                    <button onclick="showTab('users')" data-tab="users" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-users-cog w-5"></i> Users</button>
+                </div>
+            </nav>
+            <div class="p-4 border-t border-gray-700 flex items-center justify-between">
+                <span id="sidebarUser" class="text-sm truncate font-medium"></span>
+                <button onclick="logout()" class="text-red-400 hover:text-red-300 transition"><i class="fas fa-sign-out-alt"></i></button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-y-auto bg-gray-900">
+            <!-- TAB: Dashboard -->
+            <div id="tab-dashboard" class="tab-content p-6">
+                <h1 class="text-2xl font-bold mb-6">Dashboard Overview</h1>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📨 Messages Today</div>
+                        <div class="text-4xl font-bold gradient-text" id="statMessagesToday">0</div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📞 Calls Today</div>
+                        <div class="text-4xl font-bold text-blue-400" id="statCallsToday">0</div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">🔥 New Leads</div>
+                        <div class="text-4xl font-bold text-amber-400" id="statNewLeads">0</div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📊 Conversion</div>
+                        <div class="text-4xl font-bold text-violet-400" id="statConversionRate">0%</div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="card-premium p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-bold">My WhatsApp Bots</h2>
+                            <button onclick="showTab('bot_list')" class="text-xs font-bold text-emerald-400 hover:text-emerald-300">View All</button>
+                        </div>
+                        <div id="whatsappBotsList" class="space-y-4"></div>
+                    </div>
+                    <div class="card-premium p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-bold">My Vapi Agents</h2>
+                            <button onclick="showTab('agents')" class="text-xs font-bold text-blue-400 hover:text-blue-300">Manage</button>
+                        </div>
+                        <div id="vapiAgentsList" class="space-y-4"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Contacts -->
+            <div id="tab-contacts" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6"><h1 class="text-2xl font-bold">Contacts</h1><button onclick="openContactForm()" class="bg-green-600 px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-2"></i>Add Contact</button></div>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700"><table class="w-full text-sm text-left"><thead class="bg-gray-700 text-gray-300"><tr><th class="p-4">Name</th><th>Company</th><th>Status</th><th>Source</th><th>Phone</th><th>Actions</th></tr></thead><tbody id="contactsTable"></tbody></table></div>
+            </div>
+
+            <!-- TAB: Pipeline -->
+            <div id="tab-pipeline" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6"><h1 class="text-2xl font-bold">Sales Pipeline</h1><button onclick="openDealForm()" class="bg-green-600 px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-2"></i>Add Deal</button></div>
+                <div class="flex gap-4 overflow-x-auto pb-4" id="kanbanBoard"></div>
+            </div>
+
+            <!-- TAB: Webhook -->
+            <div id="tab-webhook" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">🔌 Connection Hub</h1>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="text-gray-400 text-xs mb-1 uppercase tracking-wider">WhatsApp Endpoint</div>
+                        <div class="flex items-center justify-between"><code id="whWhatsappUrl" class="text-sm font-mono text-green-400 truncate mr-2"></code><button onclick="copyText('whWhatsappUrl')" class="text-gray-400 hover:text-white"><i class="fas fa-copy"></i></button></div>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="text-gray-400 text-xs mb-1 uppercase tracking-wider">Vapi Voice Endpoint</div>
+                        <div class="flex items-center justify-between"><code id="whVapiUrl" class="text-sm font-mono text-blue-400 truncate mr-2"></code><button onclick="copyText('whVapiUrl')" class="text-gray-400 hover:text-white"><i class="fas fa-copy"></i></button></div>
+                    </div>
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <div class="text-gray-400 text-xs mb-1 uppercase tracking-wider">Verify Token</div>
+                        <div class="flex items-center justify-between"><code id="verifyTokenDisplay" class="text-sm font-mono text-yellow-400 truncate mr-2"></code><button onclick="copyText('verifyTokenDisplay')" class="text-gray-400 hover:text-white"><i class="fas fa-copy"></i></button></div>
+                    </div>
+                </div>
+                <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                    <h3 class="font-bold mb-4">Live Event Stream</h3>
+                    <div id="webhookLog" class="h-80 overflow-y-auto space-y-2 font-mono text-xs"></div>
+                </div>
+            </div>
+
+            <!-- TAB: Bot List -->
+            <div id="tab-bot_list" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-4">My Automation Suite</h1>
+                <p class="text-gray-400 mb-6">Manage your active bots or select one to edit its conversational flow.</p>
+                <div id="allBotsList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            </div>
+
+            <!-- TAB: Bot Builder -->
+            <div id="tab-builder" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-8">
+                    <div>
+                        <h1 class="text-3xl font-bold tracking-tight">Bot Workspace</h1>
+                        <p class="text-slate-400">Build intelligent menu flows and automated rules.</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <select id="builderBotSelect" class="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 outline-none focus:border-emerald-500 transition-all text-sm font-medium">
+                            <option value="">Select a Bot to Design...</option>
+                        </select>
+                        <button id="btnSaveConfig" onclick="saveBotConfig()" class="gradient-bg hover:opacity-90 px-6 py-2 rounded-xl font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                            <i class="fas fa-save"></i> <span>Sync & Deploy</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-12 gap-6" id="builderWorkspace">
+                    <!-- Left Column: Navigation -->
+                    <div class="col-span-12 lg:col-span-3 space-y-6">
+                        <!-- Categories Panel -->
+                        <div class="card-premium p-5">
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">Menu Sections</h3>
+                                <button onclick="addCategory()" class="text-emerald-400 hover:text-emerald-300 transition-colors">
+                                    <i class="fas fa-plus-circle text-lg"></i>
+                                </button>
+                            </div>
+                            <div id="builderCategories" class="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                                <!-- Categories will be rendered here -->
+                            </div>
+                        </div>
+
+                        <!-- Global Settings Panel -->
+                        <div class="card-premium p-5">
+                            <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">Policy & Logic</h3>
+                            <div class="space-y-4">
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">TAX / VAT (%)</label>
+                                    <input type="number" id="ruleTax" class="input-field py-2 text-sm" placeholder="e.g. 5">
+                                </div>
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">DELIVERY FEE ($)</label>
+                                    <input type="number" id="ruleDelivery" class="input-field py-2 text-sm" placeholder="e.g. 2.50">
+                                </div>
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">MIN. ORDER ($)</label>
+                                    <input type="number" id="ruleMinOrder" class="input-field py-2 text-sm" placeholder="e.g. 15.00">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Item Editor -->
+                    <div class="col-span-12 lg:col-span-9">
+                        <div class="card-premium p-8 min-h-[600px] relative overflow-hidden">
+                            <!-- Header for selected category -->
+                            <div id="categoryHeader" class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 hidden border-b border-slate-700 pb-6">
+                                <div>
+                                    <div class="flex items-center gap-3">
+                                        <h2 class="text-2xl font-bold gradient-text" id="currentCategoryName">Category Name</h2>
+                                        <button onclick="editCategoryName()" class="text-slate-500 hover:text-slate-300"><i class="fas fa-edit text-sm"></i></button>
+                                    </div>
+                                    <p class="text-slate-400 text-sm mt-1">Add items, descriptions, and pricing for this section.</p>
+                                </div>
+                                <div class="flex gap-2 mt-4 md:mt-0">
+                                    <button onclick="addItem()" class="bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all">
+                                        <i class="fas fa-plus"></i> New Product
+                                    </button>
+                                    <button onclick="deleteCategory()" class="text-rose-500/50 hover:text-rose-500 p-2 transition-colors">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Items Grid -->
+                            <div id="builderItems" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                                <!-- Items will be rendered here -->
+                            </div>
+
+                            <!-- Empty State -->
+                            <div id="noCategorySelected" class="absolute inset-0 flex flex-col items-center justify-center text-center bg-[#1e293b]/40 backdrop-blur-sm z-10 p-10">
+                                <div class="w-24 h-24 bg-slate-800 rounded-3xl flex items-center justify-center mb-6 shadow-2xl">
+                                    <i class="fas fa-robot text-4xl text-slate-600"></i>
+                                </div>
+                                <h3 class="text-xl font-bold text-slate-300">Design Your Experience</h3>
+                                <p class="text-slate-500 max-w-xs mt-2 mb-8">Select a bot and a menu section from the left to start building your conversational flow.</p>
+                                <div class="flex gap-4">
+                                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                                        <i class="fas fa-mouse-pointer text-emerald-400"></i> Click a section
+                                    </div>
+                                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                                        <i class="fas fa-keyboard text-emerald-400"></i> Add products
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: Settings -->
+            <div id="tab-settings" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">Platform Settings</h1>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <h2 class="font-bold mb-4">AI Model Keys</h2>
+                        <div class="space-y-4">
+                            <div class="flex gap-4 mb-4">
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="gemini" class="mr-2"> Gemini</label>
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="groq" class="mr-2"> Groq</label>
+                            </div>
+                            <div id="geminiKeySection">
+                                <label class="text-xs text-gray-400">Gemini Key</label>
+                                <input type="password" id="geminiApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                            </div>
+                            <div id="groqKeySection">
+                                <label class="text-xs text-gray-400">Groq Key</label>
+                                <input type="password" id="groqApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                            </div>
+                            <button onclick="saveAiConfig()" class="w-full bg-green-600 p-2 rounded-lg font-bold mt-4">Update AI Config</button>
+                        </div>
+                    </div>
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <h2 class="font-bold mb-4 text-red-500">Danger Zone</h2>
+                        <p class="text-sm text-gray-400 mb-4">All data associated with your account will be permanently deleted.</p>
+                        <div class="flex gap-2">
+                            <input type="text" id="deleteConfirmText" placeholder="Type DELETE" class="bg-gray-700 p-2 rounded-lg flex-1">
+                            <button onclick="deleteAccount()" class="bg-red-600 px-4 py-2 rounded-lg font-bold">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Other Tabs (Users, Agents, etc.) omitted for brevity but should remain -->
+            <div id="tab-users" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">User Management (Admin)</h1>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700"><table class="w-full text-sm text-left"><thead class="bg-gray-700 text-gray-300"><tr><th class="p-4">User</th><th>Role</th><th>Bots</th><th>Status</th><th>Actions</th></tr></thead><tbody id="usersTableBody"></tbody></table></div>
+            </div>
+            
+            <div id="tab-bot_create" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">Bot Creation Wizard</h1>
+                <div class="bg-gray-800 rounded-xl p-8 max-w-2xl mx-auto border border-gray-700">
+                    <div id="wizardStep1">
+                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 1: Identity & Niche</h2>
+                        <div class="space-y-4">
+                            <div><label class="block text-sm font-medium mb-1">Bot Name</label><input type="text" id="botNewName" placeholder="e.g. Pizza King" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div><label class="block text-sm font-medium mb-1">Business Niche</label>
+                                <select id="botNewType" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600">
+                                    <option value="restaurant">Restaurant (Ordering Engine)</option>
+                                    <option value="service">Service (AI Booking)</option>
+                                    <option value="real_estate">Real Estate (Lead Gen)</option>
+                                    <option value="appointment">Appointment (Scheduling)</option>
+                                </select>
+                            </div>
+                            <button onclick="document.getElementById('wizardStep1').classList.add('hidden'); document.getElementById('wizardStep2').classList.remove('hidden');" class="w-full bg-blue-600 p-4 rounded-xl font-bold mt-4">Next: Meta API Config →</button>
+                        </div>
+                    </div>
+
+                    <div id="wizardStep2" class="hidden">
+                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 2: WhatsApp Meta API</h2>
+                        <div class="space-y-4">
+                            <div><label class="block text-sm font-medium mb-1">Meta Access Token</label><input type="password" id="botNewToken" placeholder="EAA..." class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div><label class="block text-sm font-medium mb-1">Phone Number ID</label><input type="text" id="botNewPhoneId" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                                <div><label class="block text-sm font-medium mb-1">WABA ID</label><input type="text" id="botNewWabaId" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            </div>
+                            <div class="flex gap-4 pt-6">
+                                <button onclick="document.getElementById('wizardStep2').classList.add('hidden'); document.getElementById('wizardStep1').classList.remove('hidden');" class="flex-1 bg-gray-600 p-4 rounded-xl font-bold">Back</button>
+                                <button onclick="deployBotWizard()" class="flex-[2] bg-green-600 p-4 rounded-xl font-bold text-lg hover:bg-green-700">Deploy Instance</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="tab-bot_assign" class="tab-content hidden p-6">
+                 <h1 class="text-2xl font-bold mb-6">Assign Bot to User</h1>
+                 <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 max-w-md">
+                     <div class="space-y-4">
+                         <input id="assignUsername" placeholder="Username" class="w-full bg-gray-700 p-3 rounded-lg">
+                         <input id="assignBotName" placeholder="Bot Name" class="w-full bg-gray-700 p-3 rounded-lg">
+                         <button onclick="assignBot()" class="w-full bg-blue-600 p-3 rounded-lg font-bold">Perform Assignment</button>
+                         <div id="assignMsg"></div>
+                     </div>
+                 </div>
+            </div>
+
+            <div id="tab-agents" class="tab-content hidden p-6">
+                 <h1 class="text-2xl font-bold mb-6">Vapi Voice Agents</h1>
+                 <div id="agentsList" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+            </div>
+            
+            <div id="tab-calls" class="tab-content hidden p-6">
+                 <h1 class="text-2xl font-bold mb-6">Voice Call Logs</h1>
+                 <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-sm text-left"><thead class="bg-gray-700 text-gray-300"><tr><th class="p-4">Contact</th><th>Duration</th><th>Outcome</th><th>Time</th></tr></thead><tbody id="callsTable"></tbody></table></div>
+            </div>
+
+            <div id="tab-ai" class="tab-content hidden p-6">
+                <h1 class="text-2xl font-bold mb-6">Intelligence Chat</h1>
+                <div class="bg-gray-800 rounded-xl h-[500px] flex flex-col border border-gray-700">
+                    <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+                    <div class="p-4 border-t border-gray-700 flex gap-2">
+                        <input id="chatInput" placeholder="Analyze my business data..." class="flex-1 bg-gray-700 p-3 rounded-xl outline-none">
+                        <button onclick="sendChat()" class="bg-green-600 px-6 rounded-xl font-bold">Send</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = window.location.origin;
+    let authToken = localStorage.getItem("token");
+    let currentUser = null;
+    let currentUserRole = "user";
+    let currentConfig = { categories: [], rules: { tax: 8, delivery: 5, min_order: 20 } };
+    let activeCategoryId = null;
+
+    async function apiCall(endpoint, method, body = null) {
+        console.log(`API Call: ${method} ${endpoint}`, body);
+        const headers = { 'Content-Type': 'application/json' };
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+        try {
+            const res = await fetch(`${API_BASE}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : null });
+            const data = await res.json();
+            console.log(`API Response: ${res.status}`, data);
+            if (!res.ok) throw new Error(data.detail || 'API Error');
+            return data;
+        } catch (err) {
+            console.error(`API Error: ${err.message}`);
+            throw err;
+        }
+    }
+
+    async function login() {
+        const u = document.getElementById('loginUsername').value;
+        const p = document.getElementById('loginPassword').value;
+        console.log("Attempting login for:", u);
+        try {
+            const d = await apiCall('/auth/login', 'POST', { username: u, password: p });
+            authToken = d.access_token;
+            localStorage.setItem('token', authToken);
+            console.log("Login successful, reloading...");
+            location.reload();
+        } catch(e) { 
+            console.error("Login failed:", e.message);
+            document.getElementById('loginError').innerText = e.message; 
+        }
+    }
+
+    async function loadUserAndDashboard() {
+        const user = await apiCall('/auth/me', 'GET');
+        currentUser = user;
+        currentUserRole = user.role || 'user';
+        document.getElementById('sidebarUser').innerText = user.username;
+        document.getElementById('userRoleBadge').innerHTML = `<span class="bg-${currentUserRole === 'admin' ? 'purple' : 'gray'}-600 px-2 py-0.5 rounded text-[10px] uppercase">${currentUserRole}</span>`;
+        if (currentUserRole === 'admin') document.getElementById('adminBotSection').classList.remove('hidden');
+        document.getElementById('authContainer').classList.add('hidden');
+        document.getElementById('dashboardContainer').classList.remove('hidden');
+        showTab('dashboard');
+    }
+
+    function showTab(tabName) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById('tab-' + tabName)?.classList.remove('hidden');
+        document.querySelectorAll('.sidebar-btn').forEach(btn => {
+            btn.classList.remove('bg-gray-700', 'text-green-400');
+            if (btn.getAttribute('data-tab') === tabName) btn.classList.add('bg-gray-700', 'text-green-400');
+        });
+        
+        if (tabName === 'dashboard') loadDashboardOverview();
+        if (tabName === 'bot_list') loadAllBots();
+        if (tabName === 'builder') loadBuilderBots();
+        if (tabName === 'users') loadUsersPage();
+        if (tabName === 'webhook') loadWebhookUrls();
+        if (tabName === 'agents') loadAgents();
+        if (tabName === 'calls') loadCalls();
+        if (tabName === 'contacts') loadContacts();
+    }
+
+    async function loadDashboardOverview() {
+        const stats = await apiCall('/api/crm/stats', 'GET');
+        document.getElementById('statMessagesToday').innerText = stats.messages_today || 0;
+        document.getElementById('statCallsToday').innerText = stats.calls_today || 0;
+        document.getElementById('statNewLeads').innerText = stats.new_leads || 0;
+        document.getElementById('statConversionRate').innerText = (stats.conversion_rate || 0) + '%';
+        
+        const data = await apiCall('/api/crm/user/overview', 'GET');
+        document.getElementById('whatsappBotsList').innerHTML = data.whatsapp_bots.map(b => `
+            <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                <span>${b.name}</span>
+                <span class="w-2 h-2 rounded-full bg-${b.status === 'live' ? 'green' : 'gray'}-500"></span>
+            </div>`).join('');
+    }
+
+    async function loadAllBots() {
+        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        document.getElementById('allBotsList').innerHTML = bots.map(b => `
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex justify-between items-center hover:border-green-500 transition cursor-pointer" onclick="editBotInBuilder(${b.id})">
+                <div><div class="font-bold text-lg">${b.name}</div><div class="text-xs text-gray-400 uppercase tracking-tighter">${b.business_niche}</div></div>
+                <div class="flex gap-2">
+                    <button class="bg-blue-600 px-3 py-1 rounded text-xs font-bold">Edit Flow</button>
+                    <button onclick="event.stopPropagation(); deleteBot(${b.id})" class="text-red-400"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>`).join('');
+    }
+
+    function editBotInBuilder(id) {
+        localStorage.setItem('target_bot_id', id);
+        showTab('builder');
+    }
+
+    async function loadBuilderBots() {
+        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        const select = document.getElementById('builderBotSelect');
+        select.innerHTML = '<option value="">Select Bot to Configure</option>' + bots.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+        
+        const target = localStorage.getItem('target_bot_id');
+        if (target) { select.value = target; loadBotBuilder(target); localStorage.removeItem('target_bot_id'); }
+        select.onchange = (e) => loadBotBuilder(e.target.value);
+    }
+
+    async function loadBotBuilder(id) {
+        if (!id) { document.getElementById('builderWorkspace').classList.add('opacity-30', 'pointer-events-none'); return; }
+        document.getElementById('builderWorkspace').classList.remove('opacity-30', 'pointer-events-none');
+        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        const bot = bots.find(b => b.id == id);
+        currentConfig = JSON.parse(bot.config_json || '{"categories":[], "rules":{"tax":8, "delivery":5, "min_order":20}}');
+        document.getElementById('ruleTax').value = currentConfig.rules.tax || 0;
+        document.getElementById('ruleDelivery').value = currentConfig.rules.delivery || 0;
+        document.getElementById('ruleMinOrder').value = currentConfig.rules.min_order || 0;
+        activeCategoryId = null;
+        renderCategories();
+        document.getElementById('noCategorySelected').classList.remove('hidden');
+        document.getElementById('categoryHeader').classList.add('hidden');
+        document.getElementById('builderItems').innerHTML = '';
+    }
+
+    function renderCategories() {
+        const el = document.getElementById('builderCategories');
+        if (!currentConfig.categories || currentConfig.categories.length === 0) {
+            el.innerHTML = '<div class="text-center py-8 text-slate-600 text-xs italic">No sections created yet</div>';
+            return;
+        }
+        el.innerHTML = currentConfig.categories.map(cat => `
+            <button onclick="selectCategory('${cat.id}')" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg transition-all ${activeCategoryId === cat.id ? 'active' : ''}">
+                <i class="fas fa-folder w-5"></i> <span>${cat.name}</span>
+            </button>`).join('');
+    }
+
+    function selectCategory(id) {
+        activeCategoryId = id;
+        const cat = currentConfig.categories.find(c => c.id === id);
+        if (!cat) return;
+        document.getElementById('currentCategoryName').innerText = cat.name;
+        document.getElementById('noCategorySelected').classList.add('hidden');
+        document.getElementById('categoryHeader').classList.remove('hidden');
+        renderCategories();
+        renderItems();
+    }
+
+    function renderItems() {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (!cat) return;
+        const el = document.getElementById('builderItems');
+        if (!cat.items || cat.items.length === 0) {
+            el.innerHTML = '<div class="col-span-full text-center py-20 text-slate-600"><i class="fas fa-shopping-basket text-5xl mb-4 block opacity-10"></i>This section is empty. Add your first product!</div>';
+            return;
+        }
+        el.innerHTML = cat.items.map((item, idx) => `
+            <div class="card-premium p-5 group hover:border-emerald-500/50 transition-all animate-slide-in relative">
+                <div class="flex justify-between items-start mb-4">
+                    <input type="text" value="${item.emoji || '🍕'}" onchange="updateItem(${idx}, 'emoji', this.value)" class="bg-slate-900 w-10 h-10 rounded-lg text-xl flex items-center justify-center border border-slate-700 outline-none focus:border-emerald-500 text-center">
+                    <button onclick="deleteItem(${idx})" class="text-slate-600 hover:text-rose-500 transition-colors p-1"><i class="fas fa-times-circle"></i></button>
+                </div>
+                <div class="space-y-3">
+                    <input type="text" value="${item.name}" onchange="updateItem(${idx}, 'name', this.value)" class="bg-transparent font-bold w-full text-white border-none p-0 focus:ring-0 placeholder-slate-600" placeholder="Product Name">
+                    <div class="flex items-center text-emerald-400 font-bold bg-slate-900/50 rounded-lg px-2 py-1 w-fit border border-emerald-500/20">
+                        <span class="text-xs mr-1">$</span>
+                        <input type="number" step="0.01" value="${item.price}" onchange="updateItem(${idx}, 'price', this.value)" class="bg-transparent w-16 border-none p-0 focus:ring-0 text-sm">
+                    </div>
+                    <textarea onchange="updateItem(${idx}, 'desc', this.value)" class="bg-transparent text-xs text-slate-400 w-full border-none p-0 resize-none h-12 focus:ring-0" placeholder="Product description...">${item.desc || ''}</textarea>
+                </div>
+                <div class="mt-4 pt-4 border-t border-slate-700">
+                    <label class="block text-[9px] font-bold text-slate-500 uppercase mb-2">Options / Add-ons</label>
+                    <input type="text" value="${item.addons || ''}" onchange="updateItem(${idx}, 'addons', this.value)" class="bg-slate-900/30 border border-slate-700 rounded-lg w-full text-[10px] p-2 text-slate-300 focus:border-emerald-500 outline-none" placeholder="e.g. Extra Cheese:+1.5, Olives:+0.5">
+                </div>
+            </div>`).join('');
+    }
+
+    function addCategory() {
+        const name = prompt('Enter name for the new section (e.g. Desserts):');
+        if (!name) return;
+        if (!currentConfig.categories) currentConfig.categories = [];
+        currentConfig.categories.push({ id: 'cat_' + Date.now(), name, items: [] });
+        renderCategories();
+    }
+
+    function editCategoryName() {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (!cat) return;
+        const newName = prompt('Edit section name:', cat.name);
+        if (newName) {
+            cat.name = newName;
+            document.getElementById('currentCategoryName').innerText = newName;
+            renderCategories();
+        }
+    }
+
+    function deleteCategory() {
+        if (!confirm('Are you sure you want to delete this entire section and all its products?')) return;
+        currentConfig.categories = currentConfig.categories.filter(c => c.id !== activeCategoryId);
+        activeCategoryId = null;
+        document.getElementById('categoryHeader').classList.add('hidden');
+        document.getElementById('noCategorySelected').classList.remove('hidden');
+        renderCategories();
+    }
+
+    function addItem() {
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (!cat) return;
+        if (!cat.items) cat.items = [];
+        cat.items.push({ name: '', price: 0, desc: '', emoji: '📦', addons: '' });
+        renderItems();
+    }
+
+    function updateItem(idx, field, value) { 
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (cat && cat.items[idx]) {
+            cat.items[idx][field] = (field === 'price') ? parseFloat(value) : value;
+        }
+    }
+
+    function deleteItem(idx) { 
+        const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
+        if (cat) {
+            cat.items.splice(idx, 1);
+            renderItems(); 
+        }
+    }
+
+    async function saveBotConfig() {
+        const botId = document.getElementById('builderBotSelect').value;
+        if (!botId) { alert('Please select a bot first.'); return; }
+        
+        const btn = document.getElementById('btnSaveConfig');
+        const span = btn.querySelector('span');
+        const originalText = span.innerText;
+        
+        btn.disabled = true;
+        span.innerText = "Deploying...";
+        
+        currentConfig.rules = {
+            tax: parseFloat(document.getElementById('ruleTax').value || 0),
+            delivery: parseFloat(document.getElementById('ruleDelivery').value || 0),
+            min_order: parseFloat(document.getElementById('ruleMinOrder').value || 0)
+        };
+        
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${botId}`, 'PUT', { config_json: JSON.stringify(currentConfig) });
+            alert('🚀 Changes Synced! Your bot is now using the updated menu and logic.');
+        } catch(e) { 
+            alert('Error saving config: ' + e.message); 
+        } finally { 
+            span.innerText = originalText; 
+            btn.disabled = false; 
+        }
+    }
+
+    function logout() { localStorage.removeItem('token'); location.reload(); }
+    function copyText(id) { navigator.clipboard.writeText(document.getElementById(id).innerText); alert('Copied!'); }
+
+    // ── showTab extended ─────────────────────────────────────────────────────
+    const _origShowTab = showTab;
+    function showTab(tabName) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById('tab-' + tabName)?.classList.remove('hidden');
+        document.querySelectorAll('.sidebar-btn').forEach(btn => {
+            btn.classList.remove('bg-gray-700','text-green-400');
+            if (btn.getAttribute('data-tab') === tabName) btn.classList.add('bg-gray-700','text-green-400');
+        });
+        if (tabName === 'dashboard') loadDashboardOverview();
+        if (tabName === 'bot_list') loadAllBots();
+        if (tabName === 'builder') loadBuilderBots();
+        if (tabName === 'users') loadUsersPage();
+        if (tabName === 'webhook') loadWebhookUrls();
+        if (tabName === 'agents') loadAgents();
+        if (tabName === 'calls') loadCalls();
+        if (tabName === 'contacts') loadContacts();
+        if (tabName === 'pipeline') loadPipeline();
+        if (tabName === 'settings') loadSettings();
+    }
+
+    async function deployBotWizard() {
+        const payload = {
+            name: document.getElementById('botNewName').value.trim(),
+            bot_type: document.getElementById('botNewType').value,
+            meta_token: document.getElementById('botNewToken').value.trim(),
+            phone_number_id: document.getElementById('botNewPhoneId').value.trim(),
+            waba_id: document.getElementById('botNewWabaId').value.trim(),
+            verify_token: 'WHATSAPP_TOKEN_' + Math.random().toString(36).substring(7).toUpperCase()
+        };
+        
+        if (!payload.name || !payload.meta_token) { alert('Name and Token are required'); return; }
+        
+        try {
+            await apiCall('/api/crm/bots/whatsapp', 'POST', payload);
+            alert('🚀 Bot Deployed Successfully!');
+            document.getElementById('wizardStep2').classList.add('hidden');
+            document.getElementById('wizardStep1').classList.remove('hidden');
+            showTab('bot_list');
+        } catch(e) { alert(e.message); }
+    }
+
+    // ── Register ─────────────────────────────────────────────────────────────
+    async function register() {
+        const u = document.getElementById('regUsername').value.trim();
+        const p = document.getElementById('regPassword').value;
+        const errEl = document.getElementById('registerError');
+        if (!u || !p) { errEl.innerText = 'Fill all fields'; return; }
+        try {
+            await apiCall('/cms/register','POST',{username:u, password:p});
+            errEl.style.color='#10b981';
+            errEl.innerText = '✅ Registered! Please login.';
+        } catch(e) { errEl.style.color='#ef4444'; errEl.innerText = e.message; }
+    }
+    document.getElementById('loginTabBtn').onclick = () => {
+        document.getElementById('loginForm').classList.remove('hidden');
+        document.getElementById('registerForm').classList.add('hidden');
+        document.getElementById('loginTabBtn').className='flex-1 py-2 text-center font-semibold text-green-400 border-b-2 border-green-400';
+        document.getElementById('registerTabBtn').className='flex-1 py-2 text-center font-semibold text-gray-400';
+    };
+    document.getElementById('registerTabBtn').onclick = () => {
+        document.getElementById('registerForm').classList.remove('hidden');
+        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('registerTabBtn').className='flex-1 py-2 text-center font-semibold text-green-400 border-b-2 border-green-400';
+        document.getElementById('loginTabBtn').className='flex-1 py-2 text-center font-semibold text-gray-400';
+    };
+
+    // ── Contacts ─────────────────────────────────────────────────────────────
+    async function loadContacts() {
+        const contacts = await apiCall('/api/crm/contacts','GET');
+        const statuses = {'Hot Lead':'bg-red-500','Warm':'bg-yellow-500','New':'bg-blue-500','Cold':'bg-gray-500'};
+        document.getElementById('contactsTable').innerHTML = contacts.map(c => `
+            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                <td class="p-4 font-medium">${c.first_name} ${c.last_name}</td>
+                <td class="p-3 text-gray-400">${c.company||'-'}</td>
+                <td class="p-3"><span class="px-2 py-1 rounded-full text-xs ${statuses[c.status]||'bg-gray-600'}">${c.status}</span></td>
+                <td class="p-3 text-gray-400">${c.source||'-'}</td>
+                <td class="p-3 text-gray-400">${c.phone||'-'}</td>
+                <td class="p-3"><button onclick="deleteContact(${c.id})" class="text-red-400 hover:text-red-300"><i class="fas fa-trash"></i></button></td>
+            </tr>`).join('');
+    }
+    async function deleteContact(id) {
+        if (!confirm('Delete contact?')) return;
+        try { await apiCall('/api/crm/contacts/'+id,'DELETE'); loadContacts(); } catch(e) { alert(e.message); }
+    }
+    function openContactForm() {
+        const name = prompt('First Name:'); if (!name) return;
+        const last = prompt('Last Name:') || '';
+        const phone = prompt('Phone (e.g. +12345):') || '';
+        const company = prompt('Company:') || '';
+        apiCall('/api/crm/contacts','POST',{first_name:name,last_name:last,phone,company,status:'New',source:'Manual'})
+            .then(()=>loadContacts()).catch(e=>alert(e.message));
+    }
+
+    // ── Pipeline (Kanban) ─────────────────────────────────────────────────────
+    async function loadPipeline() {
+        const deals = await apiCall('/api/crm/deals','GET');
+        const stages = ['Discovery','Proposal','Negotiation','Won','Lost'];
+        const board = document.getElementById('kanbanBoard');
+        board.innerHTML = stages.map(stage => {
+            const cards = deals.filter(d=>d.stage===stage);
+            const val = cards.reduce((s,d)=>s+d.value,0);
+            return `<div class="kanban-col bg-gray-800 rounded-xl p-4 border border-gray-700 flex-shrink-0">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="font-bold text-sm">${stage}</h3>
+                    <span class="text-xs text-green-400">$${val.toLocaleString()}</span>
+                </div>
+                <div class="space-y-2">${cards.map(d=>`
+                    <div class="bg-gray-700 p-3 rounded-lg border border-gray-600">
+                        <div class="font-medium text-sm">${d.title}</div>
+                        <div class="text-xs text-gray-400">${d.contact_name} · $${d.value.toLocaleString()}</div>
+                        <div class="text-xs text-gray-500 mt-1">${d.probability}% probability</div>
+                    </div>`).join('')}
+                </div>
+                <button onclick="openDealForm('${stage}')" class="mt-3 w-full text-xs text-gray-400 hover:text-white py-1"><i class="fas fa-plus"></i> Add Deal</button>
+            </div>`;
+        }).join('');
+    }
+    function openDealForm(stage='Discovery') {
+        const title = prompt('Deal title:'); if (!title) return;
+        const val = parseFloat(prompt('Value ($):') || '0');
+        const contact = prompt('Contact name:') || '';
+        apiCall('/api/crm/deals','POST',{title,value:val,stage,contact_name:contact,probability:20})
+            .then(()=>loadPipeline()).catch(e=>alert(e.message));
+    }
+
+    // ── Calls ─────────────────────────────────────────────────────────────────
+    async function loadCalls() {
+        const calls = await apiCall('/api/crm/calls','GET');
+        const outcomes = {Resolved:'text-green-400','Follow-up':'text-yellow-400',Missed:'text-red-400'};
+        document.getElementById('callsTable').innerHTML = calls.map(c => `
+            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                <td class="p-4 font-medium">${c.contact_name}</td>
+                <td class="p-3 text-gray-400">${c.duration_minutes}m</td>
+                <td class="p-3 ${outcomes[c.outcome]||''}">${c.outcome}</td>
+                <td class="p-3 text-gray-400">${new Date(c.call_date).toLocaleDateString()}</td>
+            </tr>`).join('');
+    }
+
+    // ── Vapi Agents ───────────────────────────────────────────────────────────
+    async function loadAgents() {
+        const agents = await apiCall('/api/crm/vapi/agents','GET');
+        const statuses = {Live:'bg-green-600',Draft:'bg-gray-600',Paused:'bg-yellow-600'};
+        document.getElementById('agentsList').innerHTML = agents.length ? agents.map(a=>`
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700">
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <div class="font-bold">${a.name}</div>
+                        <span class="px-2 py-0.5 rounded text-xs ${statuses[a.status]||'bg-gray-600'}">${a.status}</span>
+                    </div>
+                    <button onclick="deleteAgent(${a.id})" class="text-red-400"><i class="fas fa-trash"></i></button>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-sm text-gray-400">
+                    <div>📞 Calls: <span class="text-white">${a.total_calls}</span></div>
+                    <div>📈 Conv: <span class="text-green-400">${a.conversion_rate}%</span></div>
+                </div>
+            </div>`).join('')
+        : '<div class="col-span-3 text-center text-gray-500 py-12"><i class="fas fa-microphone-slash text-4xl mb-3 block opacity-30"></i>No Vapi agents yet</div>';
+    }
+    async function deleteAgent(id) {
+        if (!confirm('Delete agent?')) return;
+        try { await apiCall('/api/crm/vapi/agents/'+id,'DELETE'); loadAgents(); } catch(e) { alert(e.message); }
+    }
+
+    // ── Users (Admin) ─────────────────────────────────────────────────────────
+    async function loadUsersPage() {
+        if (currentUserRole !== 'admin') return;
+        const users = await apiCall('/api/crm/admin/users','GET');
+        document.getElementById('usersTableBody').innerHTML = users.map(u=>`
+            <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                <td class="p-4 font-medium">${u.username}</td>
+                <td class="p-3"><span class="px-2 py-0.5 rounded text-xs ${u.role==='admin'?'bg-purple-600':'bg-gray-600'}">${u.role}</span></td>
+                <td class="p-3 text-gray-400 text-xs">${u.whatsapp_bots.join(', ')||'—'}</td>
+                <td class="p-3"><span class="px-2 py-0.5 rounded text-xs ${u.is_suspended?'bg-red-700':'bg-green-700'}">${u.is_suspended?'Suspended':'Active'}</span></td>
+                <td class="p-3 flex gap-2">
+                    <button onclick="toggleSuspend('${u.username}',${!u.is_suspended})" class="text-xs ${u.is_suspended?'text-green-400':'text-yellow-400'} hover:underline">${u.is_suspended?'Activate':'Suspend'}</button>
+                    <button onclick="deleteUser(${u.id})" class="text-red-400 text-xs hover:underline">Delete</button>
+                </td>
+            </tr>`).join('');
+    }
+    async function toggleSuspend(username, suspended) {
+        try { await apiCall('/api/crm/admin/suspend-user','POST',{username,suspended}); loadUsersPage(); } catch(e) { alert(e.message); }
+    }
+    async function deleteUser(id) {
+        if (!confirm('Permanently delete user and all their data?')) return;
+        try { await apiCall('/api/crm/admin/users/'+id,'DELETE'); loadUsersPage(); } catch(e) { alert(e.message); }
+    }
+    async function assignBot() {
+        const u = document.getElementById('assignUsername').value.trim();
+        const b = document.getElementById('assignBotName').value.trim();
+        const msg = document.getElementById('assignMsg');
+        try {
+            await apiCall('/api/crm/admin/assign-bot','POST',{username:u, bot_name:b});
+            msg.innerHTML='<span class="text-green-400">✅ Assigned!</span>';
+        } catch(e) { msg.innerHTML=`<span class="text-red-400">${e.message}</span>`; }
+    }
+
+    // ── Webhook URLs ──────────────────────────────────────────────────────────
+    async function loadWebhookUrls() {
+        const base = window.location.origin;
+        document.getElementById('whWhatsappUrl').innerText = base+'/webhook';
+        document.getElementById('whVapiUrl').innerText = base+'/api/vapi/webhook';
+        document.getElementById('verifyTokenDisplay').innerText = localStorage.getItem('verify_token')||'(set WHATSAPP_VERIFY_TOKEN in .env)';
+        // Load live events
+        try {
+            const events = await apiCall('/api/crm/webhook/events','GET');
+            document.getElementById('webhookLog').innerHTML = events.length
+                ? events.map(e=>`<div class="p-2 rounded bg-gray-700/50"><span class="text-green-400">[${e.type}]</span> ${e.time}</div>`).join('')
+                : '<div class="text-gray-500">No events yet. Send a WhatsApp message to test.</div>';
+        } catch(e) {}
+    }
+
+    // ── Bot delete ────────────────────────────────────────────────────────────
+    async function loadAllBots() {
+        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        document.getElementById('allBotsList').innerHTML = bots.map(b => `
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex justify-between items-center hover:border-green-500 transition cursor-pointer" onclick="editBotInBuilder(${b.id})">
+                <div><div class="font-bold text-lg">${b.name}</div><div class="text-xs text-gray-400 uppercase tracking-tighter">${b.business_niche}</div></div>
+                <div class="flex gap-2">
+                    <button class="bg-blue-600 px-3 py-1 rounded text-xs font-bold">Edit Flow</button>
+                    <button onclick="event.stopPropagation(); deleteBot(${b.id})" class="text-red-400"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>`).join('');
+    }
+    async function deleteBot(id) {
+        if (!confirm('Delete this bot?')) return;
+        try { await apiCall('/api/crm/bots/whatsapp/'+id,'DELETE'); loadAllBots(); } catch(e) { alert(e.message); }
+    }
+
+    // ── Settings ──────────────────────────────────────────────────────────────
+    async function loadSettings() {
+        try {
+            const cfg = await apiCall('/api/crm/settings/my-config','GET');
+            document.querySelectorAll('input[name="aiProvider"]').forEach(r=>{r.checked=r.value===cfg.ai_provider;});
+            document.getElementById('geminiApiKey').value = cfg.gemini_api_key||'';
+            document.getElementById('groqApiKey').value = cfg.groq_api_key||'';
+        } catch(e) {}
+    }
+    async function saveAiConfig() {
+        const provider = document.querySelector('input[name="aiProvider"]:checked')?.value || 'groq';
+        const gemini = document.getElementById('geminiApiKey').value;
+        const groq = document.getElementById('groqApiKey').value;
+        try {
+            await apiCall('/api/crm/settings/save-config','POST',{
+                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:''
+            });
+            alert('✅ AI config saved!');
+        } catch(e) { alert(e.message); }
+    }
+    async function deleteAccount() {
+        const confirmed = document.getElementById('deleteConfirmText').value;
+        if (confirmed !== 'DELETE') { alert('Type DELETE to confirm'); return; }
+        if (!confirm('This will permanently delete your account and all data. Are you sure?')) return;
+        try {
+            await apiCall('/api/crm/settings/delete-account','DELETE');
+            logout();
+        } catch(e) { alert(e.message); }
+    }
+
+    // ── AI Chat ───────────────────────────────────────────────────────────────
+    async function sendChat() {
+        const input = document.getElementById('chatInput');
+        const msg = input.value.trim(); if (!msg) return;
+        const box = document.getElementById('chatMessages');
+        box.innerHTML += `<div class="flex justify-end"><div class="bg-green-600 rounded-xl px-4 py-2 max-w-xs text-sm">${msg}</div></div>`;
+        input.value=''; box.scrollTop=box.scrollHeight;
+        try {
+            const res = await apiCall('/api/crm/ai/chat','POST',{messages:[{role:'user',content:msg}]});
+            box.innerHTML += `<div class="flex"><div class="bg-gray-700 rounded-xl px-4 py-2 max-w-xs text-sm">${res.reply}</div></div>`;
+        } catch(e) {
+            box.innerHTML += `<div class="flex"><div class="bg-red-900/50 rounded-xl px-4 py-2 max-w-xs text-sm text-red-300">Error: ${e.message}</div></div>`;
+        }
+        box.scrollTop=box.scrollHeight;
+    }
+    document.getElementById('chatInput')?.addEventListener('keydown', e => { if(e.key==='Enter') sendChat(); });
+
+    // ── Dashboard vapi agents list ────────────────────────────────────────────
+    async function loadDashboardOverview() {
+        try {
+            const stats = await apiCall('/api/crm/stats','GET');
+            document.getElementById('statMessagesToday').innerText = stats.messages_today||0;
+            document.getElementById('statCallsToday').innerText = stats.calls_today||0;
+            document.getElementById('statNewLeads').innerText = stats.new_leads||0;
+            document.getElementById('statConversionRate').innerText = (stats.conversion_rate||0)+'%';
+        } catch(e) {}
+        try {
+            const data = await apiCall('/api/crm/user/overview','GET');
+            document.getElementById('whatsappBotsList').innerHTML = data.whatsapp_bots.map(b=>`
+                <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                    <span class="font-medium">${b.name}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-400">${b.messages_today||0} msgs</span>
+                        <span class="w-2 h-2 rounded-full ${b.status==='live'?'bg-green-500':'bg-gray-500'}"></span>
+                    </div>
+                </div>`).join('')||'<div class="text-gray-500 text-sm">No bots yet. Create one in Bot Management.</div>';
+            document.getElementById('vapiAgentsList').innerHTML = data.vapi_agents.map(a=>`
+                <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
+                    <span class="font-medium">${a.name}</span>
+                    <div class="text-xs text-gray-400">${a.total_calls} calls</div>
+                </div>`).join('')||'<div class="text-gray-500 text-sm">No voice agents yet.</div>';
+        } catch(e) {}
+    }
+
+    if (authToken) loadUserAndDashboard().catch(() => logout());
+</script>
+</body>
+</html>

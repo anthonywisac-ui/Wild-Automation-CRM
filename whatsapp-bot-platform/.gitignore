@@ -1,0 +1,8 @@
+.env
+platform.db
+__pycache__/
+*.pyc
+.claude/
+.gemini/
+*.log
+data/
