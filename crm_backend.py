@@ -187,9 +187,24 @@ def create_vapi_agent_api(agent_data: VapiAgentCreate, current_user: User = Depe
 def get_my_bots(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bots = db.query(WhatsappBot).filter(WhatsappBot.owner_id == current_user.id).all()
     return [{
-        "id": b.id, "name": b.name, "bot_type": b.bot_type,
-        "business_name": b.business_name, "language": b.language,
-        "webhook_url": b.webhook_url, "created_at": b.created_at.isoformat() if b.created_at else None
+        "id": b.id,
+        "name": b.name,
+        "bot_type": b.bot_type,
+        "business_name": b.business_name,
+        "language": b.language,
+        "webhook_url": b.webhook_url,
+        "config_json": b.config_json,
+        "tax_rate": b.tax_rate,
+        "delivery_fee": b.delivery_fee,
+        "meta_token": b.meta_token,
+        "phone_number_id": b.phone_number_id,
+        "waba_id": b.waba_id,
+        "verify_token": b.verify_token,
+        "manager_number": b.manager_number,
+        "ai_provider": b.ai_provider,
+        "ai_api_key": b.ai_api_key,
+        "system_prompt": b.system_prompt,
+        "created_at": b.created_at.isoformat() if b.created_at else None
     } for b in bots]
 
 @router.post("/bots/whatsapp")
