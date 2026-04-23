@@ -258,7 +258,42 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
         if k in allowed:
             setattr(bot, k, v)
     db.commit()
-    return {"status": "updated"}
+    return {"status": "updated", "id": bot.id}
+
+@router.post("/bots/whatsapp/{bot_id}/duplicate")
+def duplicate_bot(bot_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    original = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not original:
+        raise HTTPException(404, "Original bot not found")
+    
+    new_name = f"{original.name} (Copy)"
+    # Ensure global uniqueness
+    count = 1
+    while db.query(WhatsappBot).filter(WhatsappBot.name == new_name).first():
+        new_name = f"{original.name} (Copy {count})"
+        count += 1
+
+    new_bot = WhatsappBot(
+        owner_id=current_user.id,
+        name=new_name,
+        bot_type=original.bot_type,
+        business_name=original.business_name,
+        language=original.language,
+        config_json=original.config_json,
+        tax_rate=original.tax_rate,
+        delivery_fee=original.delivery_fee,
+        system_prompt=original.system_prompt,
+        ai_provider=original.ai_provider,
+        # We leave tokens empty for the new client to fill
+        meta_token="",
+        phone_number_id="",
+        waba_id="",
+        verify_token=""
+    )
+    db.add(new_bot)
+    db.commit()
+    db.refresh(new_bot)
+    return {"id": new_bot.id, "message": "Bot duplicated successfully", "new_name": new_name}
 
 @router.delete("/bots/whatsapp/{bot_id}")
 def delete_bot_api(bot_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
