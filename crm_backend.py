@@ -374,8 +374,27 @@ def admin_suspend_user(data: dict, admin: User = Depends(require_admin), db: Ses
 # ========== AI Chat ==========
 @router.post("/ai/chat")
 async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Simplified AI chat for brevity, full logic was preserved in earlier edits
-    return {"reply": "AI Chat is operational. Please ensure your API keys are set in Settings."}
+    user_msg = req.messages[-1]["content"] if req.messages else ""
+    provider = current_user.ai_provider or "groq"
+    api_key = ""
+    
+    if provider == "groq": api_key = current_user.groq_api_key or os.getenv("GROQ_API_KEY")
+    elif provider == "gemini": api_key = current_user.gemini_api_key or os.getenv("GEMINI_API_KEY")
+    elif provider == "openai": api_key = current_user.openai_api_key or os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        return {"reply": "⚠️ AI API Key is missing. Please go to Settings and add your API key."}
+
+    # Use the same AI logic as the bots but for the dashboard assistant
+    try:
+        from bots.restaurant.ai_utils import get_ai_response
+        # Mocking a session for the dashboard assistant
+        mock_session = {"lang": "en", "stage": "dashboard", "name": current_user.username}
+        reply = await get_ai_response("admin_dashboard", user_msg, "en", mock_session)
+        return {"reply": reply}
+    except Exception as e:
+        logger.error(f"AI Chat Error: {e}")
+        return {"reply": f"Sorry, I couldn't process that. Error: {str(e)}"}
 
 # ========== Reservations & Orders ==========
 @router.get("/reservations")
