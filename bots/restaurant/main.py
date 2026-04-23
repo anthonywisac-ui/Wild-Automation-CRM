@@ -11,9 +11,10 @@ from .stripe_utils import handle_stripe_webhook
 from .menu_data import load_menu
 from .strings import load_strings
 from session import SharedSession
+from sqlalchemy.orm import Session
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from db import authenticate_user, create_access_token, get_user, decode_token, create_user
+from db import authenticate_user, create_access_token, get_user_by_username, decode_token, create_user, get_db
 
 security = HTTPBearer()
 
@@ -77,28 +78,28 @@ async def payment_success():
 async def payment_cancel():
     return HTMLResponse("<h1>Payment cancelled</h1>")
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     token = credentials.credentials
     payload = decode_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid token")
     username = payload.get("sub")
-    user = get_user(username)
+    user = get_user_by_username(db, username)
     if not user:
         raise HTTPException(status_code=401)
     return user
 
 @app.post("/auth/login")
-def login(username: str, password: str):
-    user = authenticate_user(username, password)
+def login(username: str, password: str, db: Session = Depends(get_db)):
+    user = authenticate_user(db, username, password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token({"sub": username})
     return {"access_token": token, "token_type": "bearer"}
 
 @app.post("/auth/register")
-def register(username: str, password: str):
-    user = create_user(username, password, role="user")
+def register(username: str, password: str, db: Session = Depends(get_db)):
+    user = create_user(db, username, password, role="user")
     if not user:
         raise HTTPException(status_code=400, detail="Username exists")
     return {"msg": "User created"}
