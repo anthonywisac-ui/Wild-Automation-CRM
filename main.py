@@ -16,6 +16,7 @@ from db import (
 )
 import uvicorn
 from db import populate_dummy_data, SessionLocal
+from setup_bot import setup_platform
 
 # ========== Configure Logging ==========
 logging.basicConfig(level=logging.INFO)
@@ -220,21 +221,14 @@ def create_initial_admin():
         if not os.getenv(var) or os.getenv(var) == "your-secret-key-change-me":
             logger.warning(f"⚠️ {var} not properly configured in .env")
     
-    # Create initial admin if none exists
-    admin_exists = db.query(User).filter(User.role == "admin").count() > 0
-    if not admin_exists:
-        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-        if admin_password == "admin123":
-            logger.warning("⚠️ Using default admin password! Set ADMIN_PASSWORD in .env")
-        create_user(db, "admin", admin_password, role="admin")
-        logger.info("✅ Initial admin created")
-
-    # Load customer profiles into memory for restaurant bot
+    # Auto-run setup_bot logic to ensure production bot is configured
     try:
+        setup_platform()
+        # Load customer profiles into memory for restaurant bot
         from db import load_customer_profiles_from_db
         load_customer_profiles_from_db()
     except Exception as e:
-        logger.warning(f"Could not load customer profiles: {e}")
+        logger.warning(f"Auto-setup failed: {e}")
 
     db.close()
 
