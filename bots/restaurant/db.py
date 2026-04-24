@@ -8,7 +8,7 @@ def get_session_db(sender, bot_id):
     db = SessionLocal()
     try:
         session_record = db.query(SessionState).filter(
-            SessionState.customer_phone == sender,
+            SessionState.sender_number == sender,
             SessionState.bot_id == bot_id
         ).first()
         if session_record:
@@ -21,11 +21,11 @@ def save_session_db(sender, bot_id, state_dict):
     db = SessionLocal()
     try:
         session_record = db.query(SessionState).filter(
-            SessionState.customer_phone == sender,
+            SessionState.sender_number == sender,
             SessionState.bot_id == bot_id
         ).first()
         if not session_record:
-            session_record = SessionState(customer_phone=sender, bot_id=bot_id)
+            session_record = SessionState(sender_number=sender, bot_id=bot_id)
             db.add(session_record)
         
         session_record.state_json = json.dumps(state_dict)

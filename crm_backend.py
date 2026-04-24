@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
