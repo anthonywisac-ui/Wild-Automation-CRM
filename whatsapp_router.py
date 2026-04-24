@@ -63,7 +63,7 @@ async def verify_webhook(request: Request):
     verify_token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
 
-    GLOBAL_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "your_verify_token_here")
+    GLOBAL_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "token123")
 
     if verify_token == GLOBAL_VERIFY_TOKEN:
         return PlainTextResponse(challenge)

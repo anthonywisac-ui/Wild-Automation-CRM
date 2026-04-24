@@ -33,7 +33,8 @@ def setup_platform():
                 business_name="Wild Automation Kitchen",
                 language="en",
                 tax_rate=0.08,
-                delivery_fee=5.0
+                delivery_fee=5.0,
+                verify_token="token123"
             )
             db.add(bot)
             db.commit()
