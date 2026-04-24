@@ -103,6 +103,7 @@ class Contact(Base):
     status = Column(String, default="New")
     source = Column(String, default="Manual")
     notes = Column(Text, default="")
+    metadata_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
     owner = relationship("User", back_populates="contacts")
 
