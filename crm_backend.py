@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -166,7 +166,9 @@ def get_contacts_api(current_user: User = Depends(get_current_user), db: Session
 
 @router.post("/contacts")
 def create_contact_api(contact: ContactCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return create_contact(db, current_user.id, contact.dict())
+    new_contact = create_contact(db, current_user.id, contact.dict())
+    log_audit(db, current_user.id, "CREATE_CONTACT", f"Contact created: {new_contact.first_name} {new_contact.last_name}")
+    return new_contact
 
 @router.put("/contacts/{contact_id}")
 def update_contact_api(contact_id: int, contact: ContactUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -180,6 +182,7 @@ def update_contact_api(contact_id: int, contact: ContactUpdate, current_user: Us
             setattr(db_contact, key, value)
     db.commit()
     db.refresh(db_contact)
+    log_audit(db, current_user.id, "UPDATE_CONTACT", f"Updated contact: {db_contact.first_name} {db_contact.last_name}")
     return db_contact
 
 # ========== Deals ==========
@@ -189,7 +192,9 @@ def get_deals_api(current_user: User = Depends(get_current_user), db: Session = 
 
 @router.post("/deals")
 def create_deal_api(deal: DealCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return create_deal(db, current_user.id, deal.dict())
+    new_deal = create_deal(db, current_user.id, deal.dict())
+    log_audit(db, current_user.id, "CREATE_DEAL", f"Deal created: {new_deal.title}")
+    return new_deal
 
 # ========== Calls ==========
 @router.get("/calls")
@@ -214,6 +219,7 @@ def create_vapi_agent_api(agent_data: VapiAgentCreate, current_user: User = Depe
     new_agent = VapiAgent(owner_id=current_user.id, **agent_data.dict(), status="Draft")
     db.add(new_agent)
     db.commit()
+    log_audit(db, current_user.id, "CREATE_VAPI_AGENT", f"VAPI Agent created: {new_agent.name}")
     return {"id": new_agent.id, "message": "Agent created"}
 
 # ========== WhatsApp Bots ==========
@@ -230,13 +236,13 @@ def get_my_bots(current_user: User = Depends(get_current_user), db: Session = De
         "config_json": b.config_json,
         "tax_rate": b.tax_rate,
         "delivery_fee": b.delivery_fee,
-        "meta_token": b.meta_token,
+        "meta_token": mask_sensitive(b.meta_token),
         "phone_number_id": b.phone_number_id,
         "waba_id": b.waba_id,
         "verify_token": b.verify_token,
         "manager_number": b.manager_number,
         "ai_provider": b.ai_provider,
-        "ai_api_key": b.ai_api_key,
+        "ai_api_key": mask_sensitive(b.ai_api_key),
         "system_prompt": b.system_prompt,
         "created_at": b.created_at.isoformat() if b.created_at else None
     } for b in bots]
@@ -391,8 +397,17 @@ def delete_bot_api(bot_id: int, current_user: User = Depends(get_current_user), 
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
     if not bot:
         raise HTTPException(404, "Bot not found")
+    bot_name = bot.name
+    
+    # Remove from user's bot list (Bug #Sync)
+    user_bots = current_user.bots
+    if bot_name in user_bots:
+        user_bots.remove(bot_name)
+        current_user.bots = user_bots
+    
     db.delete(bot)
     db.commit()
+    log_audit(db, current_user.id, "DELETE_BOT", f"Bot deleted: {bot_name}")
     return {"status": "deleted"}
 
 # ========== Stats & Overview ==========
@@ -430,9 +445,9 @@ def get_user_overview(current_user: User = Depends(get_current_user), db: Sessio
 def get_my_config(current_user: User = Depends(get_current_user)):
     return {
         "ai_provider": current_user.ai_provider or "groq",
-        "groq_api_key": current_user.groq_api_key or "",
-        "gemini_api_key": current_user.gemini_api_key or "",
-        "openai_api_key": current_user.openai_api_key or "",
+        "groq_api_key": mask_sensitive(current_user.groq_api_key),
+        "gemini_api_key": mask_sensitive(current_user.gemini_api_key),
+        "openai_api_key": mask_sensitive(current_user.openai_api_key),
         "default_voice": current_user.default_voice or "Alloy",
         "default_first_message": current_user.default_first_message or "Hello!"
     }

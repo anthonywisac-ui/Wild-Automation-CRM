@@ -1,60 +1,106 @@
-# db.py - In-memory storage for restaurant bot
+import json
 import time
-import aiohttp
-from .config import GOOGLE_SHEET_WEBHOOK, MANAGER_NUMBER
+from datetime import datetime
+from db import SessionLocal, SessionState, Contact, WhatsappBot
 
-# Global dictionaries
-customer_sessions = {}
-last_message_time = {}
-saved_orders = {}
-customer_order_lookup = {}
-manager_pending = {}
-customer_profiles = {}
+# Persistence wrappers for the restaurant engine
+def get_session_db(sender, bot_id):
+    db = SessionLocal()
+    try:
+        session_record = db.query(SessionState).filter(
+            SessionState.customer_phone == sender,
+            SessionState.bot_id == bot_id
+        ).first()
+        if session_record:
+            return json.loads(session_record.state_json)
+        return None
+    finally:
+        db.close()
 
-# ========== Shared functions ==========
-def save_profile(sender, session):
-    if session.get("name"):
-        profile = customer_profiles.get(sender, {"order_history": []})
+def save_session_db(sender, bot_id, state_dict):
+    db = SessionLocal()
+    try:
+        session_record = db.query(SessionState).filter(
+            SessionState.customer_phone == sender,
+            SessionState.bot_id == bot_id
+        ).first()
+        if not session_record:
+            session_record = SessionState(customer_phone=sender, bot_id=bot_id)
+            db.add(session_record)
+        
+        session_record.state_json = json.dumps(state_dict)
+        session_record.updated_at = datetime.utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+def get_profile_db(sender, owner_id):
+    db = SessionLocal()
+    try:
+        contact = db.query(Contact).filter(Contact.phone == sender, Contact.owner_id == owner_id).first()
+        if contact and contact.metadata_json:
+            return json.loads(contact.metadata_json)
+        return {"name": contact.first_name if contact else "", "address": "", "lang": "en", "order_history": []}
+    finally:
+        db.close()
+
+def save_profile(sender, session, owner_id=None):
+    if not owner_id: return
+    db = SessionLocal()
+    try:
+        contact = db.query(Contact).filter(Contact.phone == sender, Contact.owner_id == owner_id).first()
+        if not contact:
+            contact = Contact(phone=sender, owner_id=owner_id, source="WhatsApp")
+            db.add(contact)
+        
+        profile = json.loads(contact.metadata_json) if contact.metadata_json else {"order_history": []}
         profile.update({
-            "name": session.get("name", ""),
+            "name": session.get("name", contact.first_name),
             "address": session.get("address", ""),
             "lang": session.get("lang", "en"),
             "delivery_type": session.get("delivery_type", ""),
             "payment": session.get("payment", ""),
         })
-        if "order_history" not in profile:
-            profile["order_history"] = []
-        customer_profiles[sender] = profile
+        contact.first_name = profile["name"]
+        contact.metadata_json = json.dumps(profile)
+        db.commit()
+    finally:
+        db.close()
 
-def add_to_order_history(sender, order_id, order_items):
-    profile = customer_profiles.get(sender, {"order_history": []})
-    if "order_history" not in profile:
-        profile["order_history"] = []
-    profile["order_history"].append({
-        "order_id": order_id,
-        "items": [
-            {"item_id": k, "name": v["item"]["name"], "qty": v["qty"]}
-            for k, v in order_items.items()
-        ],
-        "timestamp": time.time()
-    })
-    profile["order_history"] = profile["order_history"][-5:]
-    customer_profiles[sender] = profile
+def add_to_order_history(sender, order_id, order_items, owner_id):
+    db = SessionLocal()
+    try:
+        contact = db.query(Contact).filter(Contact.phone == sender, Contact.owner_id == owner_id).first()
+        if not contact: return
+        
+        profile = json.loads(contact.metadata_json) if contact.metadata_json else {"order_history": []}
+        if "order_history" not in profile: profile["order_history"] = []
+        
+        profile["order_history"].append({
+            "order_id": order_id,
+            "items": [{"item_id": k, "name": v["item"]["name"], "qty": v["qty"]} for k, v in order_items.items()],
+            "timestamp": time.time()
+        })
+        profile["order_history"] = profile["order_history"][-5:]
+        contact.metadata_json = json.dumps(profile)
+        db.commit()
+    finally:
+        db.close()
 
-def get_favorite_items(sender):
-    profile = customer_profiles.get(sender, {})
+def get_favorite_items(sender, owner_id):
+    profile = get_profile_db(sender, owner_id)
     history = profile.get("order_history", [])
-    if not history:
-        return []
+    if not history: return []
     item_counts = {}
     for order in history:
         for item in order.get("items", []):
             name = item.get("name") if isinstance(item, dict) else item
-            if name:
-                item_counts[name] = item_counts.get(name, 0) + 1
-    sorted_items = sorted(item_counts.items(), key=lambda x: x[1], reverse=True)
-    return [item for item, count in sorted_items[:3]]
+            if name: item_counts[name] = item_counts.get(name, 0) + 1
+    return [i for i, c in sorted(item_counts.items(), key=lambda x: x[1], reverse=True)[:3]]
 
-async def save_to_sheet(customer_number, session, order_id):
-    # Optional – implement Google Sheets if needed
-    print(f"Order #{order_id} saved locally for +{customer_number}")
+# Legacy dicts kept as empty to prevent import errors during transition
+customer_sessions = {}
+customer_profiles = {}
+customer_order_lookup = {}
+saved_orders = {}
+manager_pending = {}

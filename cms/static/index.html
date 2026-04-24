@@ -175,9 +175,57 @@
 
             <!-- TAB: Bot List -->
             <div id="tab-bot_list" class="tab-content hidden p-6">
-                <h1 class="text-2xl font-bold mb-4">My Automation Suite</h1>
-                <p class="text-gray-400 mb-6">Manage your active bots or select one to edit its conversational flow.</p>
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold">My Automation Suite</h1>
+                        <p class="text-gray-400">Manage active bots, edit credentials, or clone existing setups.</p>
+                    </div>
+                    <button onclick="showTab('bot_create')" class="bg-emerald-600 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-emerald-500/20 hover:opacity-90 transition-all">
+                        <i class="fas fa-plus"></i> New Bot
+                    </button>
+                </div>
                 <div id="allBotsList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            </div>
+
+            <!-- MODAL: Bot Credentials Editor -->
+            <div id="credentialsModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+                <div class="card-premium w-full max-w-lg p-8 animate-slide-in">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <i class="fas fa-key text-emerald-400"></i> Edit Bot Credentials
+                        </h2>
+                        <button onclick="closeCredentialsModal()" class="text-slate-500 hover:text-white"><i class="fas fa-times"></i></button>
+                    </div>
+                    <input type="hidden" id="editCredBotId">
+                    <div class="space-y-4">
+                        <div class="group">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Bot Name</label>
+                            <input type="text" id="editCredName" class="input-field py-2 text-sm">
+                        </div>
+                        <div class="group">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Meta Access Token</label>
+                            <input type="password" id="editCredToken" class="input-field py-2 text-sm" placeholder="EAA...">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="group">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Phone Number ID</label>
+                                <input type="text" id="editCredPhoneId" class="input-field py-2 text-sm">
+                            </div>
+                            <div class="group">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">WABA ID</label>
+                                <input type="text" id="editCredWabaId" class="input-field py-2 text-sm">
+                            </div>
+                        </div>
+                        <div class="group">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Forwarding URL (Optional)</label>
+                            <input type="text" id="editCredForward" class="input-field py-2 text-sm" placeholder="https://your-server.com/webhook">
+                        </div>
+                        <div class="pt-4 flex gap-3">
+                            <button onclick="closeCredentialsModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl font-bold transition-all">Cancel</button>
+                            <button onclick="saveBotCredentials()" class="flex-[2] gradient-bg hover:opacity-90 py-3 rounded-xl font-bold shadow-lg shadow-emerald-500/20 transition-all">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- TAB: Bot Builder -->
@@ -202,14 +250,24 @@
                     <div class="col-span-12 lg:col-span-3 space-y-6">
                         <!-- Categories Panel -->
                         <div class="card-premium p-5">
-                            <div class="flex justify-between items-center mb-6">
-                                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">Menu Sections</h3>
-                                <button onclick="addCategory()" class="text-emerald-400 hover:text-emerald-300 transition-colors">
-                                    <i class="fas fa-plus-circle text-lg"></i>
-                                </button>
+                            <div id="restaurantBuilderNav" class="space-y-6">
+                                <div class="flex justify-between items-center mb-6">
+                                    <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400">Menu Sections</h3>
+                                    <button onclick="addCategory()" class="text-emerald-400 hover:text-emerald-300 transition-colors">
+                                        <i class="fas fa-plus-circle text-lg"></i>
+                                    </button>
+                                </div>
+                                <div id="builderCategories" class="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                                    <!-- Categories will be rendered here -->
+                                </div>
                             </div>
-                            <div id="builderCategories" class="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-                                <!-- Categories will be rendered here -->
+                            <div id="nicheBuilderNav" class="hidden">
+                                <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">Agent Config</h3>
+                                <p class="text-[10px] text-slate-500 mb-4">Configure custom data fields and lead flows for this agent.</p>
+                                <button onclick="selectNicheConfig()" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg transition-all flex items-center active">
+                                    <i class="fas fa-database w-5"></i> 
+                                    <span class="truncate">Knowledge Base</span>
+                                </button>
                             </div>
                         </div>
 
@@ -217,6 +275,10 @@
                         <div class="card-premium p-5">
                             <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-6">Policy & Logic</h3>
                             <div class="space-y-4">
+                                <div class="group">
+                                    <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">SYSTEM PROMPT (AI PERSONALITY)</label>
+                                    <textarea id="botSystemPrompt" class="input-field py-2 text-xs h-24 resize-none" placeholder="Explain how the bot should behave..."></textarea>
+                                </div>
                                 <div class="group">
                                     <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">TAX / VAT (%)</label>
                                     <input type="number" id="ruleTax" class="input-field py-2 text-sm" placeholder="e.g. 5">
@@ -284,6 +346,26 @@
                                 <!-- Items Grid -->
                                 <div id="builderItems" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                     <!-- Items will be rendered here -->
+                                </div>
+                            </div>
+
+                            <!-- Niche Specific Editor (Non-Restaurant) -->
+                            <div id="nicheEditor" class="hidden animate-fade-in">
+                                <div class="flex justify-between items-center mb-6 border-b border-slate-700 pb-6">
+                                    <div>
+                                        <h2 class="text-2xl font-bold gradient-text" id="nicheEditorTitle">Agent Intelligence</h2>
+                                        <p class="text-slate-400 text-sm mt-1">Define the properties, services, or facts this agent knows.</p>
+                                    </div>
+                                </div>
+                                <div class="bg-slate-900/50 p-6 rounded-xl border border-slate-700">
+                                    <div class="flex justify-between items-center mb-4">
+                                        <label class="block text-xs font-bold text-slate-500 uppercase">Knowledge Base (JSON Format)</label>
+                                        <button onclick="formatNicheJson()" class="text-[10px] text-emerald-400 hover:underline">Format JSON</button>
+                                    </div>
+                                    <textarea id="nicheConfigJson" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-emerald-500 h-[400px] focus:border-emerald-500 outline-none transition-all" placeholder='{ "properties": [...], "services": [...] }'></textarea>
+                                    <div class="mt-4 flex items-center gap-2 text-[10px] text-slate-500">
+                                        <i class="fas fa-info-circle"></i> This data will be used by the bot to answer customer questions.
+                                    </div>
                                 </div>
                             </div>
 
@@ -514,13 +596,70 @@
     async function loadAllBots() {
         const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
         document.getElementById('allBotsList').innerHTML = bots.map(b => `
-            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex justify-between items-center hover:border-green-500 transition cursor-pointer" onclick="editBotInBuilder(${b.id})">
-                <div><div class="font-bold text-lg">${b.name}</div><div class="text-xs text-gray-400 uppercase tracking-tighter">${b.business_niche}</div></div>
-                <div class="flex gap-2">
-                    <button class="bg-blue-600 px-3 py-1 rounded text-xs font-bold">Edit Flow</button>
-                    <button onclick="event.stopPropagation(); deleteBot(${b.id})" class="text-red-400"><i class="fas fa-trash"></i></button>
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex flex-col hover:border-emerald-500 transition-all shadow-lg group">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <div class="font-bold text-lg group-hover:text-emerald-400 transition-colors">${b.name}</div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-widest mt-0.5">${b.business_niche || 'General'} · ${b.bot_type}</div>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="event.stopPropagation(); duplicateBot(${b.id})" class="p-2 text-slate-500 hover:text-blue-400 transition-colors" title="Clone Bot"><i class="fas fa-copy"></i></button>
+                        <button onclick="event.stopPropagation(); deleteBot(${b.id})" class="p-2 text-slate-500 hover:text-rose-500 transition-colors" title="Delete"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2 mt-auto">
+                    <button onclick="editBotInBuilder(${b.id})" class="flex-1 bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
+                        <i class="fas fa-project-diagram"></i> Edit Flow
+                    </button>
+                    <button onclick="openCredentialsModal(${b.id})" class="flex-1 bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600 hover:text-white px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
+                        <i class="fas fa-key"></i> Credentials
+                    </button>
                 </div>
             </div>`).join('');
+    }
+
+    async function duplicateBot(id) {
+        if (!confirm('Clone this bot configuration? Meta tokens will not be copied for safety.')) return;
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${id}/duplicate`, 'POST');
+            loadAllBots();
+        } catch(e) { alert(e.message); }
+    }
+
+    async function openCredentialsModal(id) {
+        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        const b = bots.find(bot => bot.id == id);
+        if (!b) return;
+        document.getElementById('editCredBotId').value = b.id;
+        document.getElementById('editCredName').value = b.name;
+        document.getElementById('editCredToken').value = ''; // Don't show masked/real token for security
+        document.getElementById('editCredPhoneId').value = b.phone_number_id || '';
+        document.getElementById('editCredWabaId').value = b.waba_id || '';
+        document.getElementById('editCredForward').value = b.forwarding_url || '';
+        document.getElementById('credentialsModal').classList.remove('hidden');
+    }
+
+    function closeCredentialsModal() {
+        document.getElementById('credentialsModal').classList.add('hidden');
+    }
+
+    async function saveBotCredentials() {
+        const id = document.getElementById('editCredBotId').value;
+        const payload = {
+            name: document.getElementById('editCredName').value.trim(),
+            phone_number_id: document.getElementById('editCredPhoneId').value.trim(),
+            waba_id: document.getElementById('editCredWabaId').value.trim(),
+            forwarding_url: document.getElementById('editCredForward').value.trim()
+        };
+        
+        const token = document.getElementById('editCredToken').value.trim();
+        if (token) payload.meta_token = token;
+
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${id}`, 'PUT', payload);
+            closeCredentialsModal();
+            loadAllBots();
+        } catch(e) { alert(e.message); }
     }
 
     function editBotInBuilder(id) {
@@ -544,14 +683,41 @@
         const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
         const bot = bots.find(b => b.id == id);
         currentConfig = JSON.parse(bot.config_json || '{"categories":[], "rules":{"tax":8, "delivery":5, "min_order":20}}');
-        document.getElementById('ruleTax').value = currentConfig.rules.tax || 0;
-        document.getElementById('ruleDelivery').value = currentConfig.rules.delivery || 0;
+        
+        // Dynamic UI Switch based on bot_type
+        if (bot.bot_type === 'restaurant') {
+            document.getElementById('restaurantBuilderNav').classList.remove('hidden');
+            document.getElementById('nicheBuilderNav').classList.add('hidden');
+            document.getElementById('categoryHeader').classList.add('hidden');
+            document.getElementById('nicheEditor').classList.add('hidden');
+        } else {
+            document.getElementById('restaurantBuilderNav').classList.add('hidden');
+            document.getElementById('nicheBuilderNav').classList.remove('hidden');
+            document.getElementById('categoryHeader').classList.add('hidden');
+            document.getElementById('nicheEditor').classList.add('hidden');
+            document.getElementById('nicheConfigJson').value = JSON.stringify(currentConfig, null, 2);
+        }
+
+        document.getElementById('ruleTax').value = bot.tax_rate || 0;
+        document.getElementById('ruleDelivery').value = bot.delivery_fee || 0;
         document.getElementById('ruleMinOrder').value = currentConfig.rules.min_order || 0;
+        document.getElementById('botSystemPrompt').value = bot.system_prompt || '';
         activeCategoryId = null;
         renderCategories();
         document.getElementById('noCategorySelected').classList.remove('hidden');
-        document.getElementById('categoryHeader').classList.add('hidden');
-        document.getElementById('builderItems').innerHTML = '';
+    }
+
+    function selectNicheConfig() {
+        document.getElementById('noCategorySelected').classList.add('hidden');
+        document.getElementById('nicheEditor').classList.remove('hidden');
+        document.getElementById('nicheEditorTitle').innerText = 'Data Source: ' + document.getElementById('builderBotSelect').options[document.getElementById('builderBotSelect').selectedIndex].text;
+    }
+
+    function formatNicheJson() {
+        try {
+            const el = document.getElementById('nicheConfigJson');
+            el.value = JSON.stringify(JSON.parse(el.value), null, 2);
+        } catch(e) { alert('Invalid JSON: ' + e.message); }
     }
 
     function renderCategories() {
@@ -681,7 +847,8 @@
         const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
         if (!cat) return;
         if (!cat.items) cat.items = [];
-        cat.items.push({ name: '', price: 0, desc: '', emoji: '📦', addons: '' });
+        const uid = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        cat.items.push({ id: uid, name: '', price: 0, desc: '', emoji: '📦', addons: '' });
         renderItems();
     }
 
@@ -704,6 +871,9 @@
         const botId = document.getElementById('builderBotSelect').value;
         if (!botId) { alert('Please select a bot first.'); return; }
         
+        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        const bot = bots.find(b => b.id == botId);
+
         const btn = document.getElementById('btnSaveConfig');
         const span = btn.querySelector('span');
         const originalText = span.innerText;
@@ -711,14 +881,33 @@
         btn.disabled = true;
         span.innerText = "Deploying...";
         
+        const tax_rate = parseFloat(document.getElementById('ruleTax').value || 0);
+        const delivery_fee = parseFloat(document.getElementById('ruleDelivery').value || 0);
+        const system_prompt = document.getElementById('botSystemPrompt').value;
+
+        if (bot.bot_type !== 'restaurant') {
+            try {
+                currentConfig = JSON.parse(document.getElementById('nicheConfigJson').value);
+            } catch(e) {
+                alert('Invalid JSON in Knowledge Base. Please fix before saving.');
+                btn.disabled = false; span.innerText = originalText;
+                return;
+            }
+        }
+
         currentConfig.rules = {
-            tax: parseFloat(document.getElementById('ruleTax').value || 0),
-            delivery: parseFloat(document.getElementById('ruleDelivery').value || 0),
+            tax: tax_rate,
+            delivery: delivery_fee,
             min_order: parseFloat(document.getElementById('ruleMinOrder').value || 0)
         };
         
         try {
-            await apiCall(`/api/crm/bots/whatsapp/${botId}`, 'PUT', { config_json: JSON.stringify(currentConfig) });
+            await apiCall(`/api/crm/bots/whatsapp/${botId}`, 'PUT', { 
+                config_json: JSON.stringify(currentConfig),
+                tax_rate: tax_rate,
+                delivery_fee: delivery_fee,
+                system_prompt: system_prompt
+            });
             alert('🚀 Changes Synced! Your bot is now using the updated menu and logic.');
         } catch(e) { 
             alert('Error saving config: ' + e.message); 
@@ -944,17 +1133,7 @@
     }
 
     // ── Bot delete ────────────────────────────────────────────────────────────
-    async function loadAllBots() {
-        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
-        document.getElementById('allBotsList').innerHTML = bots.map(b => `
-            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex justify-between items-center hover:border-green-500 transition cursor-pointer" onclick="editBotInBuilder(${b.id})">
-                <div><div class="font-bold text-lg">${b.name}</div><div class="text-xs text-gray-400 uppercase tracking-tighter">${b.business_niche}</div></div>
-                <div class="flex gap-2">
-                    <button class="bg-blue-600 px-3 py-1 rounded text-xs font-bold">Edit Flow</button>
-                    <button onclick="event.stopPropagation(); deleteBot(${b.id})" class="text-red-400"><i class="fas fa-trash"></i></button>
-                </div>
-            </div>`).join('');
-    }
+
     async function deleteBot(id) {
         if (!confirm('Delete this bot?')) return;
         try { await apiCall('/api/crm/bots/whatsapp/'+id,'DELETE'); loadAllBots(); } catch(e) { alert(e.message); }

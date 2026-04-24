@@ -1,18 +1,35 @@
-import time
+import json
+from db import SessionState
 from whatsapp_handlers import send_text_message_v2
 
-sessions = {}
+def get_session(sender, bot_id, db):
+    session_record = db.query(SessionState).filter(SessionState.customer_phone == sender, SessionState.bot_id == bot_id).first()
+    if session_record: return json.loads(session_record.state_json)
+    return {"stage": "greeting"}
+
+def save_session(sender, bot_id, state, db):
+    session_record = db.query(SessionState).filter(SessionState.customer_phone == sender, SessionState.bot_id == bot_id).first()
+    if not session_record:
+        session_record = SessionState(customer_phone=sender, bot_id=bot_id)
+        db.add(session_record)
+    session_record.state_json = json.dumps(state)
+    db.commit()
 
 async def handle_flow(sender, text, bot, db):
-    if sender not in sessions:
-        sessions[sender] = {"stage": "greeting"}
-    
-    session = sessions[sender]
+    session = get_session(sender, bot.id, db)
     stage = session["stage"]
     text_lower = text.lower().strip()
 
     if stage == "greeting":
-        msg = f"📅 Hello! Welcome to {bot.name} Booking Assistant.\n\nWhat service would you like to book?\n- Consultation\n- Maintenance\n- General Inquiry"
+        import json
+        config = {}
+        try: config = json.loads(bot.config_json) if bot.config_json else {}
+        except: pass
+        
+        services = config.get("services", ["Consultation", "Maintenance", "General Inquiry"])
+        options = "\n".join([f"- {s}" for s in services])
+        
+        msg = f"📅 Hello! Welcome to {bot.name} Booking Assistant.\n\nWhat service would you like to book?\n{options}"
         await send_text_message_v2(sender, msg, bot)
         session["stage"] = "select_service"
 
@@ -41,4 +58,7 @@ async def handle_flow(sender, text, bot, db):
             session["stage"] = "completed"
         else:
             msg = "Booking cancelled. Type anything to start again."
-            sessions.pop(sender)
+            await send_text_message_v2(sender, msg, bot)
+            session = {"stage": "greeting"}
+            
+    save_session(sender, bot.id, session, db)

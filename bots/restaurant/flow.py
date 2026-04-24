@@ -50,8 +50,9 @@ async def notify_manager(sender, session, order_id, bot=None):
         
         order_text = get_order_text(session["order"])
         total = get_order_total(session["order"])
-        tax = total * 0.08
-        delivery_charge = get_delivery_fee(total, session.get("delivery_type"))
+        tax_rate = bot.tax_rate if bot else 0.08
+        tax = total * tax_rate
+        delivery_charge = bot.delivery_fee if bot else get_delivery_fee(total, session.get("delivery_type"))
         grand_total = total + tax + delivery_charge
         
         header = f"New Order #{order_id}"
@@ -103,9 +104,9 @@ def get_bot_menu(phone_number_id=None):
                     }
                     
                     for i, item in enumerate(cat["items"]):
-                        # Generate ID based on prefix if available
+                        # Prefer stable ID if present, fallback to prefix+idx
                         prefix = cat.get("prefix", "ITEM").upper()
-                        item_id = f"{prefix}{i+1}"
+                        item_id = item.get("id") or f"{prefix}{i+1}"
                         
                         dynamic_menu[cat_id]["items"][item_id] = {
                             "name": item["name"],
@@ -121,24 +122,22 @@ def get_bot_menu(phone_number_id=None):
         print(f"Error loading dynamic menu: {e}")
     return DEFAULT_MENU
 # ========== Session management ==========
-def new_session(sender=None, table_number=None):
-    profile = customer_profiles.get(sender, {}) if sender else {}
+def new_session(sender=None, bot=None):
+    profile = get_profile_db(sender, bot.owner_id) if sender and bot else {}
     is_returning = bool(profile.get("name"))
     return {
         "stage": "returning" if is_returning else "lang_select",
         "lang": profile.get("lang", "en"),
         "order": {},
         "delivery_type": profile.get("delivery_type", ""),
-        "table_number": table_number,
-        "order_type": "dine_in" if table_number else "",
         "address": profile.get("address", ""),
         "name": profile.get("name", ""),
         "payment": profile.get("payment", ""),
         "last_added": None,
         "current_cat": None,
         "conversation": [],
-        "upsell_declined_types": set(),
-        "upsell_shown_for": set(),
+        "upsell_declined_types": [],
+        "upsell_shown_for": [],
         "order_id": None,
         "deal_context": None,
         "post_order_at": 0,
@@ -146,10 +145,12 @@ def new_session(sender=None, table_number=None):
         "just_confirmed_at": 0,
     }
 
-def get_session(sender):
-    if sender not in customer_sessions:
-        customer_sessions[sender] = new_session(sender)
-    return customer_sessions[sender]
+def get_session(sender, bot):
+    session = get_session_db(sender, bot.id)
+    if not session:
+        session = new_session(sender, bot)
+        save_session_db(sender, bot.id, session)
+    return session
 
 # ========== Helper functions (deal, side, etc.) ==========
 async def prompt_deal_pick(sender, session, kind, lang="en"):
@@ -389,7 +390,7 @@ async def handle_reservation_flow(sender, session, text, lang, bot=None):
             session["stage"] = "menu"
             await send_main_menu(sender, session.get("name", ""), lang, bot=bot)
 async def _handle_flow_inner(sender, text, is_button=False, bot=None):
-    session = get_session(sender)
+    session = get_session(sender, bot)
     if session.get("just_confirmed"):
         if time.time() - session.get("just_confirmed_at", 0) > 2:
             session.pop("just_confirmed", None)
@@ -403,28 +404,32 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
     if stage == "post_order":
         elapsed = time.time() - session.get("post_order_at", 0)
         if elapsed > POST_ORDER_WINDOW:
-            customer_sessions[sender] = new_session(sender)
-            session = customer_sessions[sender]
+            session = new_session(sender, bot)
+            save_session_db(sender, bot.id, session)
             stage = session["stage"]
         else:
             if is_order_status_query(text_lower):
                 await handle_order_status(sender, session, lang, text, bot=bot)
+                save_session_db(sender, bot.id, session)
                 return
             if is_thanks(text_lower) or is_bye(text_lower):
                 await send_text_message(sender, t(lang, "thanks_reply") if is_thanks(text_lower) else t(lang, "bye_reply"), bot=bot)
+                save_session_db(sender, bot.id, session)
                 return
             if is_menu_request(text_lower) or text_lower in ["hi", "hello", "hey", "start"]:
-                customer_sessions[sender] = new_session(sender)
-                session = customer_sessions[sender]
+                session = new_session(sender, bot)
+                save_session_db(sender, bot.id, session)
                 stage = session["stage"]
             else:
                 reply = await get_ai_response(sender, text, lang, session)
                 await send_text_message(sender, reply, bot=bot)
+                save_session_db(sender, bot.id, session)
                 return
 
     if text_lower in ["restart", "reset", "start over"]:
-        customer_sessions[sender] = new_session(sender)
-        customer_sessions[sender]["stage"] = "lang_select"
+        session = new_session(sender, bot)
+        session["stage"] = "lang_select"
+        save_session_db(sender, bot.id, session)
         await send_language_selection(sender, bot=bot)
         return
 
@@ -776,6 +781,7 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
 
     if text == "VIEW_CART":
         await send_cart_view(sender, session["order"], lang, bot=bot)
+        save_session_db(sender, bot.id, session)
         return
 
     if text in ["YES_UPSELL", "NO_UPSELL"]:
@@ -784,9 +790,11 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
             session["current_cat"] = "desserts"
             await send_category_items(sender, "desserts", session["order"], lang, bot=bot)
         else:
-            session["upsell_declined_types"].add("dessert")
+            if "dessert" not in session["upsell_declined_types"]:
+                session["upsell_declined_types"].append("dessert")
             session["stage"] = "confirm"
             await send_order_summary(sender, session["order"], lang, bot=bot)
+        save_session_db(sender, bot.id, session)
         return
 
     if text == "CONFIRM_ORDER":
@@ -799,8 +807,9 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
         return
 
     if text == "CANCEL_ORDER":
-        customer_sessions[sender] = new_session(sender)
+        session = new_session(sender, bot)
         await send_text_message(sender, t(lang, "cancelled"), bot=bot)
+        save_session_db(sender, bot.id, session)
         return
 
     if text == "DINE_IN":

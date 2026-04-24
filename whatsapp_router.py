@@ -96,15 +96,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         # ── 1. Identify the Bot ──────────────────────────────────────────────
         bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == phone_number_id).first()
         if not bot:
-            # Fallback: match global env PHONE_NUMBER_ID
-            global_pid = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-            if phone_number_id and phone_number_id == global_pid:
-                bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == "").first()
-            if not bot:
-                bot = db.query(WhatsappBot).first()  # last resort fallback
-            if not bot:
-                logger.warning(f"No bot found for phone_number_id: {phone_number_id}")
-                return {"status": "ok"}
+            logger.warning(f"No bot found for phone_number_id: {phone_number_id}")
+            return {"status": "ok"}
 
         # ── 2. Log webhook event ─────────────────────────────────────────────
         new_event = WebhookEvent(user_id=bot.owner_id, type="whatsapp")

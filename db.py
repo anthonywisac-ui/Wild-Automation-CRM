@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, ForeignKey, Boolean, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from typing import Optional, List
@@ -94,7 +94,7 @@ class User(Base):
 class Contact(Base):
     __tablename__ = "contacts"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     first_name = Column(String, default="")
     last_name = Column(String, default="")
     company = Column(String, default="")
@@ -109,7 +109,7 @@ class Contact(Base):
 class Deal(Base):
     __tablename__ = "deals"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, default="New Deal")
     company = Column(String, default="")
     contact_name = Column(String, default="")
@@ -124,7 +124,7 @@ class Deal(Base):
 class Call(Base):
     __tablename__ = "calls"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     contact_name = Column(String, default="Unknown")
     phone = Column(String, default="")
     direction = Column(String, default="Inbound")
@@ -138,7 +138,7 @@ class Call(Base):
 class VapiAgent(Base):
     __tablename__ = "vapi_agents"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     vapi_api_key = Column(String, default="")
     vapi_agent_id = Column(String, default="")
@@ -158,7 +158,7 @@ class VapiAgent(Base):
 class WhatsappBot(Base):
     __tablename__ = "whatsapp_bots"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, unique=True, index=True, nullable=False)
     bot_type = Column(String, default="restaurant")
     business_niche = Column(String, default="general")
@@ -176,6 +176,8 @@ class WhatsappBot(Base):
     tax_rate = Column(Float, default=0.08)
     delivery_fee = Column(Float, default=0.0)
     config_json = Column(Text, default="{}")
+    vapi_agent_id = Column(String, default="")
+    forwarding_url = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     owner = relationship("User", back_populates="whatsapp_bots")
     
@@ -189,7 +191,7 @@ class WhatsappBot(Base):
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     type = Column(String)
     payload_json = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -197,7 +199,7 @@ class WebhookEvent(Base):
 class SessionState(Base):
     __tablename__ = "session_states"
     id = Column(Integer, primary_key=True, index=True)
-    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id"), nullable=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=True)
     sender_number = Column(String, index=True, nullable=False)
     state_json = Column(Text, default="{}")
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -206,7 +208,7 @@ class SessionState(Base):
 class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     customer_number = Column(String, index=True)
     items_json = Column(Text, default="[]")
     total_amount = Column(Float, default=0.0)
@@ -221,7 +223,7 @@ class Order(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     action = Column(String)
     details = Column(Text)
     ip_address = Column(String, nullable=True)
@@ -231,8 +233,8 @@ class AuditLog(Base):
 class BotConfigAudit(Base):
     __tablename__ = "bot_config_audits"
     id = Column(Integer, primary_key=True, index=True)
-    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     field = Column(String)
     old_value = Column(Text)
     new_value = Column(Text)
@@ -251,7 +253,7 @@ class AdminSetting(Base):
 class ChatHistory(Base):
     __tablename__ = "chat_history"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     customer_phone = Column(String, default="", index=True)
     role = Column(String)
     content = Column(Text)
@@ -260,8 +262,8 @@ class ChatHistory(Base):
 class Reservation(Base):
     __tablename__ = "reservations"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=True)
     customer_phone = Column(String, index=True, default="")
     customer_name = Column(String, default="")
     party_size = Column(Integer, default=2)
@@ -275,7 +277,7 @@ class Reservation(Base):
 class CustomerProfile(Base):
     __tablename__ = "customer_profiles"
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     phone = Column(String, index=True, nullable=False)
     name = Column(String, default="")
     lang = Column(String, default="en")
