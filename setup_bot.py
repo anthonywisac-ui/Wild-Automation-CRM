@@ -1,9 +1,12 @@
 # setup_bot.py - Full Platform & Bot Initialization
 import os
 import json
-from db import SessionLocal, User, WhatsappBot, hash_password
+from db import SessionLocal, User, WhatsappBot, hash_password, migrate_db
 
 def setup_platform():
+    # Ensure tables exist before setup
+    migrate_db()
+    
     db = SessionLocal()
     print("Starting Full Bot Platform Setup...")
 

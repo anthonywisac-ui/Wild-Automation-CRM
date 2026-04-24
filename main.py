@@ -15,12 +15,15 @@ from db import (
     create_access_token, create_user, User
 )
 import uvicorn
-from db import populate_dummy_data, SessionLocal
+from db import populate_dummy_data, SessionLocal, migrate_db
 from setup_bot import setup_platform
 
 # ========== Configure Logging ==========
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Ensure tables are created (Bug Fix for Railway logs)
+migrate_db()
 
 db = SessionLocal()
 populate_dummy_data(db)
