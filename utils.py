@@ -61,6 +61,7 @@ def safe_btn(text, max_len=20):
     return text[:max_len - 1] + "…"
 
 def guess_category(text_lower):
+    if text_lower.startswith("cat_"): return text_lower.replace("cat_", "")
     if any(w in text_lower for w in ["deal", "combo", "offer"]): return "deals"
     if any(w in text_lower for w in ["burger", "smash", "bacon", "chicken sandwich"]): return "fastfood"
     if any(w in text_lower for w in ["pizza", "pepperoni", "margherita"]): return "pizza"
