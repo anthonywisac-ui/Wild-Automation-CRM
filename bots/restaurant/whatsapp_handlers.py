@@ -189,6 +189,29 @@ async def send_quick_upsell(sender, item_id, message, lang, upsell_type="generic
     }
     await _send_request(payload, bot)
 
+async def send_dessert_upsell(sender, order, lang, bot=None):
+    from .flow import get_bot_menu
+    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    total = get_order_total(order)
+    ds = MENU.get("desserts", {"items": {}})["items"]
+    dessert_line = " | ".join([f"{v.get('emoji','🍰')} {v['name']} ${v['price']:.2f}" for v in list(ds.values())[:3]])
+    payload = {
+        "messaging_product": "whatsapp", "to": sender, "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "header": {"type": "text", "text": "🍽️ Something Sweet?"},
+            "body": {"text": f"{t(lang, 'save_room')}\n{t(lang, 'subtotal')} ${total:.2f}\n\n{dessert_line}"},
+            "footer": {"text": "Wild Bites Restaurant"},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "YES_UPSELL", "title": safe_btn(t(lang, "yes_dessert"))}},
+                    {"type": "reply", "reply": {"id": "NO_UPSELL", "title": safe_btn(t(lang, "no_dessert"))}}
+                ]
+            }
+        }
+    }
+    await _send_request(payload, bot)
+
 async def send_cart_view(sender, order, lang, bot=None):
     if not order:
         await send_text_message(sender, t(lang, "cart_empty"), bot)
@@ -306,6 +329,25 @@ Payment: {session_data.get('payment', '')}
 {t(lang, 'thank_you')}"""
     await send_text_message(sender, msg, bot)
     return order_id
+
+async def send_min_order_warning(sender, dtype, lang, bot=None):
+    key = "min_delivery" if dtype == "delivery" else "min_pickup"
+    alt_id = "PICKUP" if dtype == "delivery" else "DELIVERY"
+    alt_label = t(lang, "pickup") if dtype == "delivery" else t(lang, "delivery")
+    payload = {
+        "messaging_product": "whatsapp", "to": sender, "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": t(lang, key)},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "ADD_MORE", "title": safe_btn(t(lang, "add_more_items"))}},
+                    {"type": "reply", "reply": {"id": alt_id, "title": safe_btn(alt_label)}}
+                ]
+            }
+        }
+    }
+    await _send_request(payload, bot)
 
 async def send_returning_customer_menu(sender, name, fav_text, lang, bot=None):
     payload = {
