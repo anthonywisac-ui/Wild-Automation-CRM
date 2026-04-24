@@ -34,7 +34,8 @@ def setup_platform():
                 language="en",
                 tax_rate=0.08,
                 delivery_fee=5.0,
-                verify_token="token123"
+                verify_token="token123",
+                phone_number_id="1100639706460130"
             )
             db.add(bot)
             db.commit()

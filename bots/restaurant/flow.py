@@ -6,7 +6,7 @@ import traceback
 from .db import (
     customer_sessions, saved_orders, customer_profiles, 
     customer_order_lookup, manager_pending, save_profile, 
-    add_to_order_history, get_favorite_items, save_to_sheet
+    add_to_order_history, get_favorite_items
 )
 from .config import MIN_DELIVERY_ORDER, MIN_PICKUP_ORDER, POST_ORDER_WINDOW, LANG_NAMES, FREE_DELIVERY_THRESHOLD, DELIVERY_CHARGE
 from .strings import t
@@ -874,7 +874,6 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
         
         save_profile(sender, session, owner_id=bot.owner_id if bot else 1)
         add_to_order_history(sender, order_id, session["order"], owner_id=bot.owner_id if bot else 1)
-        await save_to_sheet(sender, session, order_id)
         session["stage"] = "post_order"
         session["post_order_at"] = time.time()
         session["order"] = {}
