@@ -7,7 +7,7 @@ from .db import (
     customer_sessions, saved_orders, customer_profiles, 
     customer_order_lookup, manager_pending, save_profile, 
     add_to_order_history, get_favorite_items,
-    get_session_db, save_session_db
+    get_session_db, save_session_db, get_profile_db
 )
 from .config import MIN_DELIVERY_ORDER, MIN_PICKUP_ORDER, POST_ORDER_WINDOW, LANG_NAMES, FREE_DELIVERY_THRESHOLD, DELIVERY_CHARGE
 from .strings import t
@@ -450,9 +450,8 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
 
     # Returning customer
     if stage == "returning":
-        profile = customer_profiles.get(sender, {})
-        name = profile.get("name", "")
-        favorites = get_favorite_items(sender)
+        name = session.get("name", "")
+        favorites = get_favorite_items(sender, bot.owner_id)
         fav_text = f"\n\nYou usually order: {', '.join(favorites)}" if favorites else ""
         session["stage"] = "returning_choice"
         # Check if they want to book or order
@@ -473,7 +472,7 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
             session["stage"] = "address_update"
             await send_text_message(sender, "Sure! What's your new delivery address?", bot=bot)
         elif text == "REPEAT_CONFIRM":
-            profile = customer_profiles.get(sender, {})
+            profile = get_profile_db(sender, bot.owner_id)
             history = profile.get("order_history", [])
             if history:
                 last_items = history[-1].get("items", [])
