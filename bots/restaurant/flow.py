@@ -325,9 +325,11 @@ async def handle_order_status(sender, session, lang, text, bot=None):
 
 # ========== Main flow entry point (called from router) ==========
 async def handle_flow(sender, text, is_button=False, bot=None):
-    """Wrapper to handle errors and logging"""
+    """Wrapper to handle errors, session persistence and logging"""
+    session = get_session(sender, bot)
     try:
-        await _handle_flow_inner(sender, text, is_button, bot)
+        await _handle_flow_inner(sender, text, is_button, bot, session)
+        save_session_db(sender, bot.id, session)
     except Exception as e:
         print(f"FLOW ERROR: {e}")
         traceback.print_exc()
@@ -390,8 +392,7 @@ async def handle_reservation_flow(sender, session, text, lang, bot=None):
         else:
             session["stage"] = "menu"
             await send_main_menu(sender, session.get("name", ""), lang, bot=bot)
-async def _handle_flow_inner(sender, text, is_button=False, bot=None):
-    session = get_session(sender, bot)
+async def _handle_flow_inner(sender, text, is_button, bot, session):
     if session.get("just_confirmed"):
         if time.time() - session.get("just_confirmed_at", 0) > 2:
             session.pop("just_confirmed", None)
@@ -406,31 +407,25 @@ async def _handle_flow_inner(sender, text, is_button=False, bot=None):
         elapsed = time.time() - session.get("post_order_at", 0)
         if elapsed > POST_ORDER_WINDOW:
             session = new_session(sender, bot)
-            save_session_db(sender, bot.id, session)
             stage = session["stage"]
         else:
             if is_order_status_query(text_lower):
                 await handle_order_status(sender, session, lang, text, bot=bot)
-                save_session_db(sender, bot.id, session)
                 return
             if is_thanks(text_lower) or is_bye(text_lower):
                 await send_text_message(sender, t(lang, "thanks_reply") if is_thanks(text_lower) else t(lang, "bye_reply"), bot=bot)
-                save_session_db(sender, bot.id, session)
                 return
             if is_menu_request(text_lower) or text_lower in ["hi", "hello", "hey", "start"]:
                 session = new_session(sender, bot)
-                save_session_db(sender, bot.id, session)
                 stage = session["stage"]
             else:
                 reply = await get_ai_response(sender, text, lang, session)
                 await send_text_message(sender, reply, bot=bot)
-                save_session_db(sender, bot.id, session)
                 return
 
     if text_lower in ["restart", "reset", "start over"]:
         session = new_session(sender, bot)
         session["stage"] = "lang_select"
-        save_session_db(sender, bot.id, session)
         await send_language_selection(sender, bot=bot)
         return
 
