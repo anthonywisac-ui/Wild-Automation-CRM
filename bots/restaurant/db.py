@@ -98,6 +98,66 @@ def get_favorite_items(sender, owner_id):
             if name: item_counts[name] = item_counts.get(name, 0) + 1
     return [i for i, c in sorted(item_counts.items(), key=lambda x: x[1], reverse=True)[:3]]
 
+# ========== Dynamic Menu Loader ==========
+def get_bot_menu(phone_number_id=None):
+    """Fetch menu from DB config_json"""
+    from .menu_data import MENU as DEFAULT_MENU
+    db = SessionLocal()
+    try:
+        bot = None
+        if phone_number_id:
+            bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == phone_number_id).first()
+        if not bot:
+            bot = db.query(WhatsappBot).filter(WhatsappBot.bot_type == "restaurant").first()
+        
+        if bot and bot.config_json:
+            config = json.loads(bot.config_json)
+            if "categories" in config:
+                dynamic_menu = {}
+                for cat in config["categories"]:
+                    cat_id = cat.get("prefix", "").lower() or cat["id"].replace("cat_", "").lower()
+                    dynamic_menu[cat_id] = {
+                        "name": cat["name"],
+                        "items": {item["id"]: item for item in cat.get("items", [])}
+                    }
+                return dynamic_menu
+        return DEFAULT_MENU
+    except Exception as e:
+        print(f"Menu Load Error: {e}")
+        return DEFAULT_MENU
+    finally:
+        db.close()
+
+# ========== Session management ==========
+def new_session(sender=None, bot=None):
+    profile = get_profile_db(sender, bot.owner_id) if sender and bot else {}
+    is_returning = bool(profile.get("name"))
+    return {
+        "stage": "returning" if is_returning else "lang_select",
+        "lang": profile.get("lang", "en"),
+        "order": {},
+        "delivery_type": profile.get("delivery_type", ""),
+        "address": profile.get("address", ""),
+        "name": profile.get("name", ""),
+        "payment": profile.get("payment", ""),
+        "last_added": None,
+        "current_cat": None,
+        "conversation": [],
+        "upsell_declined_types": [],
+        "upsell_shown_for": [],
+        "order_id": None,
+        "deal_context": None,
+        "post_order_at": 0,
+        "just_confirmed": False,
+        "just_confirmed_at": 0,
+    }
+
+def get_session(sender, bot=None):
+    session = get_session_db(sender, bot.id if bot else None)
+    if not session:
+        session = new_session(sender, bot)
+    return session
+
 # Legacy dicts kept as empty to prevent import errors during transition
 customer_sessions = {}
 customer_profiles = {}

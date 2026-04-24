@@ -9,7 +9,8 @@ from .db import (
     customer_sessions, saved_orders, customer_profiles, 
     customer_order_lookup, manager_pending, save_profile, 
     add_to_order_history, get_favorite_items,
-    get_session_db, save_session_db, get_profile_db
+    get_session_db, save_session_db, get_profile_db,
+    get_bot_menu, new_session, get_session
 )
 from .config import MIN_DELIVERY_ORDER, MIN_PICKUP_ORDER, POST_ORDER_WINDOW, LANG_NAMES, FREE_DELIVERY_THRESHOLD, DELIVERY_CHARGE
 from .strings import t
@@ -49,63 +50,6 @@ SIDE_CHOICES = {
     "SALAD": "Caesar Salad",
 }
 
-# ========== Dynamic Menu Loader ==========
-def get_bot_menu(phone_number_id=None):
-    """Fetch menu from DB config_json"""
-    from .menu_data import MENU as DEFAULT_MENU
-    try:
-        db = SessionLocal()
-        bot = None
-        if phone_number_id:
-            bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == phone_number_id).first()
-        if not bot:
-            bot = db.query(WhatsappBot).filter(WhatsappBot.bot_type == "restaurant").first()
-        
-        if bot and bot.config_json:
-            config = json.loads(bot.config_json)
-            if "categories" in config:
-                dynamic_menu = {}
-                for cat in config["categories"]:
-                    cat_id = cat.get("prefix", "").lower() or cat["id"].replace("cat_", "").lower()
-                    dynamic_menu[cat_id] = {
-                        "name": cat["name"],
-                        "items": {item["id"]: item for item in cat.get("items", [])}
-                    }
-                return dynamic_menu
-        return DEFAULT_MENU
-    except Exception as e:
-        print(f"Menu Load Error: {e}")
-        return DEFAULT_MENU
-
-# ========== Session management ==========
-def new_session(sender=None, bot=None):
-    profile = get_profile_db(sender, bot.owner_id) if sender and bot else {}
-    is_returning = bool(profile.get("name"))
-    return {
-        "stage": "returning" if is_returning else "lang_select",
-        "lang": profile.get("lang", "en"),
-        "order": {},
-        "delivery_type": profile.get("delivery_type", ""),
-        "address": profile.get("address", ""),
-        "name": profile.get("name", ""),
-        "payment": profile.get("payment", ""),
-        "last_added": None,
-        "current_cat": None,
-        "conversation": [],
-        "upsell_declined_types": [],  # Fix: Must be list for JSON serialization
-        "upsell_shown_for": [],       # Fix: Must be list for JSON serialization
-        "order_id": None,
-        "deal_context": None,
-        "post_order_at": 0,
-        "just_confirmed": False,
-        "just_confirmed_at": 0,
-    }
-
-def get_session(sender, bot=None):
-    session = get_session_db(sender, bot.id if bot else None)
-    if not session:
-        session = new_session(sender, bot)
-    return session
 
 # ========== Deal and side helpers ==========
 async def prompt_deal_pick(sender, session, kind, lang="en", bot=None):

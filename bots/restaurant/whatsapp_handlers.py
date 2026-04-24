@@ -92,7 +92,7 @@ async def send_main_menu(sender, current_order, lang, bot=None):
     await _send_request(payload, bot)
 
 async def send_category_items(sender, cat_key, current_order, lang, bot=None):
-    from .flow import get_bot_menu
+    from .db import get_bot_menu
     MENU = get_bot_menu(bot.phone_number_id if bot else None)
     cat = MENU.get(cat_key, {"name": cat_key.title(), "items": {}})
     total = get_order_total(current_order)
@@ -190,7 +190,7 @@ async def send_quick_upsell(sender, item_id, message, lang, upsell_type="generic
     await _send_request(payload, bot)
 
 async def send_dessert_upsell(sender, order, lang, bot=None):
-    from .flow import get_bot_menu
+    from .db import get_bot_menu
     MENU = get_bot_menu(bot.phone_number_id if bot else None)
     total = get_order_total(order)
     ds = MENU.get("desserts", {"items": {}})["items"]
@@ -263,7 +263,7 @@ async def send_order_summary(sender, order, lang, bot=None):
     await _send_request(payload, bot)
 
 async def send_delivery_buttons(sender, name, lang, bot=None):
-    from .flow import get_session
+    from .db import get_session
     session = get_session(sender, bot)
     table_num = session.get("table_number")
     if table_num:
