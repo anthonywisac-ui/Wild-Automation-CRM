@@ -105,6 +105,11 @@ async def send_category_items(sender, cat_key, current_order, lang, bot=None):
         desc_text = f"{desc_prefix}${item['price']:.2f} - {item.get('desc','')}"
         rows.append({"id": f"ADD_{item_id}", "title": title, "description": desc_text[:72]})
     
+    if not rows:
+        await send_text_message(sender, f"Sorry, {cat['name']} is currently unavailable. Please try another category! 🍔", bot=bot)
+        await send_main_menu(sender, current_order, lang, bot=bot)
+        return
+
     payload = {
         "messaging_product": "whatsapp", "to": sender, "type": "interactive",
         "interactive": {

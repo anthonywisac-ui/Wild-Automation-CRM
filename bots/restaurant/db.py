@@ -120,7 +120,8 @@ def get_bot_menu(phone_number_id=None):
                         "name": cat["name"],
                         "items": {item["id"]: item for item in cat.get("items", [])}
                     }
-                return dynamic_menu
+                if dynamic_menu:
+                    return dynamic_menu
         return DEFAULT_MENU
     except Exception as e:
         print(f"Menu Load Error: {e}")
