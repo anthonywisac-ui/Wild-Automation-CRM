@@ -26,7 +26,7 @@ from .whatsapp_handlers import (
     send_order_summary, send_delivery_buttons, send_payment_buttons, 
     send_order_confirmed, send_quick_combo_upsell, send_quick_upsell, 
     send_dessert_upsell, send_min_order_warning, send_returning_customer_menu, 
-    send_repeat_order_confirm, send_manager_action_list
+    send_repeat_order_confirm, send_manager_action_list, send_list_message
 )
 from .ai_utils import get_ai_response
 from .stripe_utils import create_stripe_checkout_session
@@ -139,7 +139,7 @@ async def prompt_deal_pick(sender, session, kind, lang="en", bot=None):
         desc = f"${item['price']:.2f} - {item.get('desc','')}"
         rows.append({"id": f"DEAL_PICK_{item_id}", "title": title, "description": desc[:72]})
     
-    await send_manager_action_list(sender, sender, truncate_title(ctx["deal_item"]["name"], 60), t(lang, prompt_key), footer="Deal Builder", rows=rows, bot=bot)
+    await send_list_message(sender, truncate_title(ctx["deal_item"]["name"], 60), t(lang, prompt_key), "Deal Builder", "Select Item", [{"title": "Options", "rows": rows}], bot=bot)
 
 async def finalize_deal(sender, session, lang="en", bot=None):
     ctx = session["deal_context"]
@@ -178,7 +178,7 @@ async def prompt_bbq_sides(sender, session, lang="en", bot=None):
         {"id": "SIDE_SALAD", "title": truncate_title(t(lang, "side_salad"), 24), "description": "Classic greens"},
     ]
     
-    await send_manager_action_list(sender, sender, "🍖 Choose Your Sides", f"{t(lang, prompt_key)}{progress}", footer=f"Pick {remaining} more", rows=rows, bot=bot)
+    await send_list_message(sender, "🍖 Choose Your Sides", f"{t(lang, prompt_key)}{progress}", f"Pick {remaining} more", "Select Side", [{"title": "Side Options", "rows": rows}], bot=bot)
 
 async def finalize_bbq_sides(sender, session, lang="en", bot=None):
     ctx = session["deal_context"]
