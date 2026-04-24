@@ -1,7 +1,38 @@
 #!/usr/bin/env python3
 # generate_bot.py - Run this to create a new bot from config
-import os, json, shutil
+import os, json, shutil, requests
 from pathlib import Path
+
+def validate_credentials(cfg):
+    """Bug #4: Frontend validation for credentials"""
+    results = {"meta": "unchecked", "vapi": "unchecked", "ai": "unchecked"}
+    
+    # Check Meta (WhatsApp)
+    if cfg.get('meta_token') and cfg.get('phone_number_id'):
+        url = f"https://graph.facebook.com/v18.0/{cfg['phone_number_id']}"
+        headers = {"Authorization": f"Bearer {cfg['meta_token']}"}
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            results['meta'] = "valid" if r.status_code == 200 else f"invalid ({r.status_code})"
+        except: results['meta'] = "error"
+
+    # Check VAPI
+    if cfg.get('vapi_api_key'):
+        headers = {"Authorization": f"Bearer {cfg['vapi_api_key']}"}
+        try:
+            r = requests.get("https://api.vapi.ai/me", headers=headers, timeout=5)
+            results['vapi'] = "valid" if r.status_code == 200 else f"invalid ({r.status_code})"
+        except: results['vapi'] = "error"
+
+    # Check AI (Groq example)
+    if cfg.get('ai_provider') == "groq" and cfg.get('ai_api_key'):
+        headers = {"Authorization": f"Bearer {cfg['ai_api_key']}"}
+        try:
+            r = requests.get("https://api.groq.com/openai/v1/models", headers=headers, timeout=5)
+            results['ai'] = "valid" if r.status_code == 200 else f"invalid ({r.status_code})"
+        except: results['ai'] = "error"
+        
+    return results
 
 def create_bot_from_config(config_file):
     with open(config_file, 'r', encoding='utf-8') as f:
@@ -12,6 +43,12 @@ def create_bot_from_config(config_file):
     if output_dir.exists():
         print(f"Bot {bot_name} already exists. Delete it first.")
         return
+    
+    print(f"🔍 Validating credentials for {bot_name}...")
+    checks = validate_credentials(cfg)
+    for k, v in checks.items():
+        print(f"  - {k.upper()}: {v}")
+    
     output_dir.mkdir(parents=True)
     
     # Copy template from restaurant bot (or use generic)

@@ -7,24 +7,58 @@ from pydantic import BaseModel
 import os
 import json
 import logging
+import requests
 
-from db import (
-    get_db, get_user_by_username, decode_token, User,
-    Contact, Deal, Call, VapiAgent, WhatsappBot,
-    get_contacts, create_contact, get_deals, create_deal,
-    get_calls, create_call, get_vapi_agents,
-    get_whatsapp_bots, WebhookEvent, ChatHistory, Order, Reservation
-)
-from auth import get_current_user
+from auth import get_current_user, require_admin
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
+# ── Utils ── (Bug #8)
+def mask_sensitive(val: str):
+    if not val or len(val) < 8: return "****"
+    return f"{val[:2]}****{val[-2:]}"
 
-# ── Admin guard ───────────────────────────────────────────────────────────────
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != "admin":
-        raise HTTPException(403, "Admin access required")
-    return current_user
+def log_audit(db: Session, user_id: int, action: str, details: str):
+    new_log = AuditLog(user_id=user_id, action=action, details=details)
+    db.add(new_log)
+    try: db.commit()
+    except: db.rollback()
+
+def validate_bot_credentials(bot_id: int, db: Session):
+    """Bug #4: Validation workflow for bots"""
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
+    if not bot: return
+    
+    bot.status = "validating"
+    db.commit()
+    
+    errors = []
+    # WhatsApp Check
+    if bot.meta_token and bot.phone_number_id:
+        url = f"https://graph.facebook.com/v18.0/{bot.phone_number_id}"
+        headers = {"Authorization": f"Bearer {bot.meta_token}"}
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            if r.status_code != 200: errors.append(f"Meta API Error ({r.status_code})")
+        except: errors.append("Meta connection failed")
+    
+    # AI Check
+    if bot.ai_provider == "groq" and bot.groq_api_key:
+        headers = {"Authorization": f"Bearer {bot.groq_api_key}"}
+        try:
+            r = requests.get("https://api.groq.com/openai/v1/models", headers=headers, timeout=5)
+            if r.status_code != 200: errors.append(f"Groq API Error ({r.status_code})")
+        except: errors.append("Groq connection failed")
+    
+    bot.status = "error" if errors else "active"
+    bot.last_health_check = datetime.utcnow()
+    db.commit()
+    
+    if errors:
+        log_audit(db, bot.owner_id, "BOT_VALIDATION_FAILED", f"Bot {bot.name} failed validation: {', '.join(errors)}")
+    else:
+        log_audit(db, bot.owner_id, "BOT_VALIDATION_SUCCESS", f"Bot {bot.name} validated successfully")
 
 # ========== Pydantic Models ==========
 class ContactCreate(BaseModel):
@@ -231,34 +265,83 @@ def create_whatsapp_bot_endpoint(bot_data: WhatsappBotCreate, current_user: User
         webhook_url=bot_data.webhook_url or ""
     )
     db.add(new_bot)
-    db.commit()
-    db.refresh(new_bot)
-    
-    # Update user's bot list
-    user_bots = current_user.bots
-    if bot_data.name not in user_bots:
-        user_bots.append(bot_data.name)
-        current_user.bots = user_bots
+    try:
         db.commit()
+        db.refresh(new_bot)
         
-    return {"id": new_bot.id, "message": "Bot created successfully"}
+        # Update user's bot list
+        user_bots = current_user.bots
+        if bot_data.name not in user_bots:
+            user_bots.append(bot_data.name)
+            current_user.bots = user_bots
+            db.commit()
+        
+        log_audit(db, current_user.id, "CREATE_BOT", f"Bot created: {new_bot.name}")
+        
+        # Bug #4: Run validation immediately
+        validate_bot_credentials(new_bot.id, db)
+        
+        return {"id": new_bot.id, "message": "Bot created successfully"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create bot: {str(e)}")
+        raise HTTPException(500, "Could not create bot record.")
 
 @router.put("/bots/whatsapp/{bot_id}")
 def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
     if not bot:
         raise HTTPException(404, "Bot not found")
+
+    # Bug #3: Rate Limiting (10 requests per minute)
+    one_minute_ago = datetime.utcnow() - timedelta(minutes=1)
+    recent_updates = db.query(BotConfigAudit).filter(
+        BotConfigAudit.bot_id == bot_id,
+        BotConfigAudit.created_at > one_minute_ago
+    ).count()
+    if recent_updates >= 10:
+        raise HTTPException(429, "Rate limit exceeded. Max 10 updates per minute.")
+
+    # Bug #1: Expanded Allowed Fields
     allowed = {
         "name", "bot_type", "business_name", "language", "meta_token",
         "phone_number_id", "waba_id", "verify_token", "manager_number",
         "ai_provider", "ai_api_key", "system_prompt", "webhook_url",
-        "config_json", "tax_rate", "delivery_fee", "business_niche"
+        "config_json", "tax_rate", "delivery_fee", "business_niche", "vapi_agent_id",
+        "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key" # Added sensitive keys
     }
-    for k, v in data.items():
-        if k in allowed:
-            setattr(bot, k, v)
-    db.commit()
-    return {"status": "updated", "id": bot.id}
+
+    try:
+        changes = []
+        for k, v in data.items():
+            if k in allowed:
+                old_val = str(getattr(bot, k))
+                new_val = str(v)
+                
+                if old_val != new_val:
+                    # Bug #2 & #8: Log Config Audit with masking
+                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key"]
+                    audit = BotConfigAudit(
+                        bot_id=bot.id, user_id=current_user.id,
+                        field=k, 
+                        old_value=mask_sensitive(old_val) if is_sensitive else old_val,
+                        new_value=mask_sensitive(new_val) if is_sensitive else new_val
+                    )
+                    db.add(audit)
+                    setattr(bot, k, v)
+                    changes.append(k)
+
+        if changes:
+            # Bug #9: Proper Transaction Management
+            db.commit()
+            db.refresh(bot)
+            log_audit(db, current_user.id, "UPDATE_BOT", f"Updated {bot.name} fields: {', '.join(changes)}")
+        
+        return {"status": "updated", "id": bot.id, "changes": changes}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating bot {bot_id}: {str(e)}")
+        raise HTTPException(500, "Failed to update bot configuration.")
 
 @router.post("/bots/whatsapp/{bot_id}/duplicate")
 def duplicate_bot(bot_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -278,21 +361,29 @@ def duplicate_bot(bot_id: int, current_user: User = Depends(get_current_user), d
         name=new_name,
         bot_type=original.bot_type,
         business_name=original.business_name,
+        business_niche=original.business_niche,
         language=original.language,
         config_json=original.config_json,
         tax_rate=original.tax_rate,
         delivery_fee=original.delivery_fee,
         system_prompt=original.system_prompt,
         ai_provider=original.ai_provider,
-        # We leave tokens empty for the new client to fill
+        # SaaS Founder logic: Copy AI keys if copying within same account, but keep WhatsApp credentials blank
+        # unless it's a "master bot" deployment. For now, copy AI keys.
+        groq_api_key=original.groq_api_key,
+        gemini_api_key=original.gemini_api_key,
+        openai_api_key=original.openai_api_key,
         meta_token="",
         phone_number_id="",
         waba_id="",
-        verify_token=""
+        verify_token="",
+        status="pending_config"
     )
     db.add(new_bot)
     db.commit()
     db.refresh(new_bot)
+    
+    log_audit(db, current_user.id, "DUPLICATE_BOT", f"Duplicated bot {original.name} to {new_name}")
     return {"id": new_bot.id, "message": "Bot duplicated successfully", "new_name": new_name}
 
 @router.delete("/bots/whatsapp/{bot_id}")
@@ -369,7 +460,45 @@ def admin_suspend_user(data: dict, admin: User = Depends(require_admin), db: Ses
     if not user: raise HTTPException(404, "Not found")
     user.is_suspended = data.get("suspended", True)
     db.commit()
+    log_audit(db, admin.id, "SUSPEND_USER", f"Suspended user: {user.username}" if user.is_suspended else f"Unsuspended user: {user.username}")
     return {"status": "updated"}
+
+# ========== Bug #5: Admin Settings Persistence ==========
+@router.get("/admin/settings")
+def get_admin_settings(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    settings = db.query(AdminSetting).all()
+    return {s.key: s.value for s in settings}
+
+@router.post("/admin/settings")
+def update_admin_settings(data: dict, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    for key, value in data.items():
+        setting = db.query(AdminSetting).filter(AdminSetting.key == key).first()
+        if setting:
+            setting.value = str(value)
+        else:
+            setting = AdminSetting(key=key, value=str(value))
+            db.add(setting)
+    db.commit()
+    log_audit(db, admin.id, "UPDATE_ADMIN_SETTINGS", f"Updated keys: {', '.join(data.keys())}")
+    return {"status": "success"}
+
+# ========== Bug #7: Bot Status Monitoring ==========
+@router.get("/admin/bot-status")
+def get_bot_status_dashboard(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    bots = db.query(WhatsappBot).all()
+    return [{
+        "id": b.id, "name": b.name, "owner": b.owner.username,
+        "status": b.status, "last_health_check": b.last_health_check.isoformat() if b.last_health_check else None
+    } for b in bots]
+
+# ========== Bug #10: Activity Logs ==========
+@router.get("/admin/audit-logs")
+def get_audit_logs(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(100).all()
+    return [{
+        "id": l.id, "user": l.user.username if l.user else "System",
+        "action": l.action, "details": l.details, "created_at": l.created_at.isoformat()
+    } for l in logs]
 
 # ========== AI Chat ==========
 @router.post("/ai/chat")

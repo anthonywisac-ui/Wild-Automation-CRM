@@ -1,4 +1,4 @@
-# database.py - FIXED VERSION (FIX #2, #15)
+# database.py - SaaS Hardened Version
 import os
 import json
 from datetime import datetime, timedelta
@@ -44,7 +44,16 @@ def decode_token(token: str) -> Optional[dict]:
     except JWTError:
         return None
 
-# ========== Define all models ==========
+# ========== Database Dependency ==========
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# ========== Models ==========
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -57,9 +66,9 @@ class User(Base):
     assigned_vapi_agents = Column(Text, default="[]")
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # ✅ FIX #2: Add dedicated AI config fields
+    # AI Config
     ai_provider = Column(String, default="groq")
-    ai_api_key = Column(String, default="") # legacy/selected
+    ai_api_key = Column(String, default="")
     groq_api_key = Column(String, default="")
     gemini_api_key = Column(String, default="")
     openai_api_key = Column(String, default="")
@@ -71,6 +80,8 @@ class User(Base):
     calls = relationship("Call", back_populates="owner", cascade="all, delete-orphan")
     vapi_agents = relationship("VapiAgent", back_populates="owner", cascade="all, delete-orphan")
     whatsapp_bots = relationship("WhatsappBot", back_populates="owner", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
+    config_audits = relationship("BotConfigAudit", back_populates="user", cascade="all, delete-orphan")
 
     @property
     def bots(self) -> List[str]:
@@ -79,22 +90,6 @@ class User(Base):
     @bots.setter
     def bots(self, value: List[str]):
         self.bots_json = json.dumps(value)
-
-    @property
-    def assigned_bots_list(self) -> List[str]:
-        return json.loads(self.assigned_bots or "[]")
-
-    @assigned_bots_list.setter
-    def assigned_bots_list(self, value: List[str]):
-        self.assigned_bots = json.dumps(value)
-
-    @property
-    def assigned_vapi_list(self) -> List[str]:
-        return json.loads(self.assigned_vapi_agents or "[]")
-
-    @assigned_vapi_list.setter
-    def assigned_vapi_list(self, value: List[str]):
-        self.assigned_vapi_agents = json.dumps(value)
 
 class Contact(Base):
     __tablename__ = "contacts"
@@ -165,7 +160,7 @@ class WhatsappBot(Base):
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String, unique=True, index=True, nullable=False)
-    bot_type = Column(String, default="restaurant") # restaurant, salon, agency, hvac, lawyer, etc.
+    bot_type = Column(String, default="restaurant")
     business_niche = Column(String, default="general")
     meta_token = Column(String, default="")
     phone_number_id = Column(String, default="")
@@ -174,38 +169,30 @@ class WhatsappBot(Base):
     ai_provider = Column(String, default="groq")
     ai_api_key = Column(String, default="")
     manager_number = Column(String, default="")
-    google_sheet_id = Column(String, default="")
-    google_creds_json = Column(Text, default="")
     language = Column(String, default="en")
     business_name = Column(String, default="")
     system_prompt = Column(Text, default="")
-    stripe_secret_key = Column(String, default="")
     webhook_url = Column(String, default="")
-    forwarding_url = Column(String, default="") # Outgoing to external engine
-    
-    # ✅ Configurable business logic (Phase 3)
-    tax_rate = Column(Float, default=0.08)  # Default 8%
+    tax_rate = Column(Float, default=0.08)
     delivery_fee = Column(Float, default=0.0)
-    config_json = Column(Text, default="{}") # Stores Menu, Rules, Deals
-    
+    config_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
     owner = relationship("User", back_populates="whatsapp_bots")
+    
+    # Cascade Protection (Bug #6)
+    session_states = relationship("SessionState", back_populates="bot", cascade="all, delete-orphan")
+    config_audits = relationship("BotConfigAudit", back_populates="bot", cascade="all, delete-orphan")
+    reservations = relationship("Reservation", back_populates="bot", cascade="all, delete-orphan")
+    status = Column(String, default="active") # Bug #7: monitoring status
+    last_health_check = Column(DateTime, nullable=True)
 
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type = Column(String) # whatsapp, vapi, custom
+    type = Column(String)
     payload_json = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    @property
-    def payload(self) -> dict:
-        return json.loads(self.payload_json or "{}")
-
-    @payload.setter
-    def payload(self, value: dict):
-        self.payload_json = json.dumps(value)
 
 class SessionState(Base):
     __tablename__ = "session_states"
@@ -214,14 +201,7 @@ class SessionState(Base):
     sender_number = Column(String, index=True, nullable=False)
     state_json = Column(Text, default="{}")
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    @property
-    def data(self) -> dict:
-        return json.loads(self.state_json or "{}")
-
-    @data.setter
-    def data(self, value: dict):
-        self.state_json = json.dumps(value)
+    bot = relationship("WhatsappBot", back_populates="session_states")
 
 class Order(Base):
     __tablename__ = "orders"
@@ -234,23 +214,46 @@ class Order(Base):
     delivery_amount = Column(Float, default=0.0)
     grand_total = Column(Float, default=0.0)
     status = Column(String, default="Pending")
-    delivery_type = Column(String, default="delivery") # delivery, pickup
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    @property
-    def items(self) -> list:
-        return json.loads(self.items_json or "[]")
+# ========== SaaS Audit & Settings Models (Bugs #2, #5, #10) ==========
 
-    @items.setter
-    def items(self, value: list):
-        self.items_json = json.dumps(value)
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    action = Column(String)
+    details = Column(Text)
+    ip_address = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="audit_logs")
+
+class BotConfigAudit(Base):
+    __tablename__ = "bot_config_audits"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    field = Column(String)
+    old_value = Column(Text)
+    new_value = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    bot = relationship("WhatsappBot", back_populates="config_audits")
+    user = relationship("User", back_populates="config_audits")
+
+class AdminSetting(Base):
+    __tablename__ = "admin_settings"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, unique=True, index=True)
+    value = Column(Text)
+    description = Column(String, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class ChatHistory(Base):
     __tablename__ = "chat_history"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    customer_phone = Column(String, default="", index=True)  # WhatsApp sender number
-    role = Column(String)  # user, assistant
+    customer_phone = Column(String, default="", index=True)
+    role = Column(String)
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -264,444 +267,121 @@ class Reservation(Base):
     party_size = Column(Integer, default=2)
     reservation_date = Column(String, default="")
     reservation_time = Column(String, default="")
-    status = Column(String, default="Pending")  # Pending, Confirmed, Cancelled
+    status = Column(String, default="Pending")
     notes = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
+    bot = relationship("WhatsappBot", back_populates="reservations")
 
 class CustomerProfile(Base):
     __tablename__ = "customer_profiles"
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id"), nullable=True)
     phone = Column(String, index=True, nullable=False)
     name = Column(String, default="")
     lang = Column(String, default="en")
-    delivery_type = Column(String, default="")
     address = Column(Text, default="")
-    payment = Column(String, default="")
-    order_history_json = Column(Text, default="[]")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    @property
-    def order_history(self) -> list:
-        return json.loads(self.order_history_json or "[]")
-
-    @order_history.setter
-    def order_history(self, value: list):
-        self.order_history_json = json.dumps(value)
-
-class BotConfig(Base):
-    __tablename__ = "bot_configs"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True, nullable=False)
-    bot_type = Column(String, nullable=False)
-    config_json = Column(Text, default="{}")
-    vapi_agent_id = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# ========== FIX #15: Database Migration Helper ==========
-def migrate_user_table(session):
-    """Add new columns if they don't exist"""
-    engine = session.get_bind()
-    inspector = inspect(engine)
-    
-    if not inspector.has_table('users'):
-        Base.metadata.create_all(bind=engine)
-        return
-    
-    columns = [c['name'] for c in inspector.get_columns('users')]
-    new_columns = {
-        'ai_provider': "TEXT DEFAULT 'groq'",
-        'ai_api_key': "TEXT DEFAULT ''",
-        'groq_api_key': "TEXT DEFAULT ''",
-        'gemini_api_key': "TEXT DEFAULT ''",
-        'openai_api_key': "TEXT DEFAULT ''",
-        'default_voice': "TEXT DEFAULT 'Alloy'",
-        'default_first_message': "TEXT DEFAULT 'Hello, how can I help you?'"
-    }
-    
-    with engine.connect() as conn:
-        # Migration for Users table
-        for col_name, col_def in new_columns.items():
-            if col_name not in columns:
-                if 'sqlite' in DATABASE_URL:
-                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"))
-                else:
-                    conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
-                print(f"Added column to users: {col_name}")
-        
-        # Migration for WhatsappBot table
-        bot_columns = [c['name'] for c in inspector.get_columns('whatsapp_bots')]
-        new_bot_cols = {
-            'tax_rate': "FLOAT DEFAULT 0.08",
-            'delivery_fee': "FLOAT DEFAULT 0.0",
-            'business_niche': "TEXT DEFAULT 'general'",
-            'bot_type': "TEXT DEFAULT 'restaurant'",
-            'forwarding_url': "TEXT DEFAULT ''",
-            'config_json': "TEXT DEFAULT '{}'",
-            'vapi_agent_id': "TEXT DEFAULT ''"
-        }
-        for col_name, col_def in new_bot_cols.items():
-            if col_name not in bot_columns:
-                if 'sqlite' in DATABASE_URL:
-                    conn.execute(text(f"ALTER TABLE whatsapp_bots ADD COLUMN {col_name} {col_def}"))
-                else:
-                    conn.execute(text(f"ALTER TABLE whatsapp_bots ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
-                print(f"Added column to whatsapp_bots: {col_name}")
+# ========== CRUD Helpers ==========
 
-        # Migration for SessionState table
-        session_columns = [c['name'] for c in inspector.get_columns('session_states')]
-        if 'bot_id' not in session_columns:
-            if 'sqlite' in DATABASE_URL:
-                conn.execute(text("ALTER TABLE session_states ADD COLUMN bot_id INTEGER"))
-            else:
-                conn.execute(text("ALTER TABLE session_states ADD COLUMN IF NOT EXISTS bot_id INTEGER"))
-            print("Added column to session_states: bot_id")
-
-        # Migration for ChatHistory table — add customer_phone
-        if inspector.has_table('chat_history'):
-            chat_cols = [c['name'] for c in inspector.get_columns('chat_history')]
-            if 'customer_phone' not in chat_cols:
-                if 'sqlite' in DATABASE_URL:
-                    conn.execute(text("ALTER TABLE chat_history ADD COLUMN customer_phone TEXT DEFAULT ''"))
-                else:
-                    conn.execute(text("ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS customer_phone TEXT DEFAULT ''"))
-                print("Added column to chat_history: customer_phone")
-
-        conn.commit()
-
-    # Ensure all tables are created (includes new: reservations, customer_profiles)
-    Base.metadata.create_all(bind=engine)
-
-
-# ========== Create all tables (after all models defined) ==========
-Base.metadata.create_all(bind=engine)
-
-# Run migrations on database load
-db_session = SessionLocal()
-migrate_user_table(db_session)
-db_session.close()
-
-# ========== Database Session ==========
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# ========== Helper Functions ==========
-def create_user(db, username: str, password: str, role: str = "user") -> Optional[User]:
-    if db.query(User).filter(User.username == username).first():
-        return None
-    hashed = hash_password(password)
-    user = User(username=username, hashed_password=hashed, role=role)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-def get_user_by_username(db, username: str) -> Optional[User]:
+def get_user_by_username(db: Session, username: str) -> Optional[User]:
     return db.query(User).filter(User.username == username).first()
 
-def authenticate_user(db, username: str, password: str) -> Optional[User]:
+def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
     user = get_user_by_username(db, username)
-    if not user or not verify_password(password, user.hashed_password):
-        return None
-    if user.is_suspended:
-        return None
-    return user
+    if user and verify_password(password, user.hashed_password):
+        return user
+    return None
 
-def get_contacts(db, owner_id: int):
+def create_user(db: Session, username: str, password: str, role: str = "user") -> Optional[User]:
+    if get_user_by_username(db, username):
+        return None
+    new_user = User(username=username, hashed_password=hash_password(password), role=role)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+def get_contacts(db: Session, owner_id: int):
     return db.query(Contact).filter(Contact.owner_id == owner_id).all()
 
-def create_contact(db, owner_id: int, data: dict):
-    contact = Contact(owner_id=owner_id, **data)
-    db.add(contact)
+def create_contact(db: Session, owner_id: int, data: dict):
+    new_contact = Contact(owner_id=owner_id, **data)
+    db.add(new_contact)
     db.commit()
-    db.refresh(contact)
-    return contact
+    db.refresh(new_contact)
+    return new_contact
 
-def get_deals(db, owner_id: int):
+def get_deals(db: Session, owner_id: int):
     return db.query(Deal).filter(Deal.owner_id == owner_id).all()
 
-def create_deal(db, owner_id: int, data: dict):
-    deal = Deal(owner_id=owner_id, **data)
-    db.add(deal)
+def create_deal(db: Session, owner_id: int, data: dict):
+    new_deal = Deal(owner_id=owner_id, **data)
+    db.add(new_deal)
     db.commit()
-    db.refresh(deal)
-    return deal
+    db.refresh(new_deal)
+    return new_deal
 
-def get_calls(db, owner_id: int):
+def get_calls(db: Session, owner_id: int):
     return db.query(Call).filter(Call.owner_id == owner_id).all()
 
-def create_call(db, owner_id: int, data: dict):
-    call = Call(owner_id=owner_id, **data)
-    db.add(call)
+def create_call(db: Session, owner_id: int, data: dict):
+    new_call = Call(owner_id=owner_id, **data)
+    db.add(new_call)
     db.commit()
-    db.refresh(call)
-    return call
+    db.refresh(new_call)
+    return new_call
 
-def get_vapi_agents(db, owner_id: int):
-    return db.query(VapiAgent).filter(VapiAgent.owner_id == owner_id).all()
-
-def create_vapi_agent(db, owner_id: int, data: dict):
-    agent = VapiAgent(owner_id=owner_id, **data)
-    db.add(agent)
-    db.commit()
-    db.refresh(agent)
-    return agent
-
-def get_whatsapp_bots(db, owner_id: int):
+def get_whatsapp_bots(db: Session, owner_id: int):
     return db.query(WhatsappBot).filter(WhatsappBot.owner_id == owner_id).all()
 
-def create_whatsapp_bot(db, owner_id: int, data: dict):
-    bot = WhatsappBot(owner_id=owner_id, **data)
-    db.add(bot)
-    db.commit()
-    db.refresh(bot)
-    return bot
-
-def get_bot_config(db, name: str):
-    return db.query(BotConfig).filter(BotConfig.name == name).first()
-
-def create_bot_config(db, name: str, bot_type: str, config_json: str):
-    bot = BotConfig(name=name, bot_type=bot_type, config_json=config_json)
-    db.add(bot)
-    db.commit()
-    db.refresh(bot)
-    return bot
-
-def delete_bot_config(db, name: str):
-    bot = db.query(BotConfig).filter(BotConfig.name == name).first()
-    if bot:
-        db.delete(bot)
-        db.commit()
-    return bot
-
-# ========== Session & Order Helpers ==========
-def get_session_data(db, sender_number: str) -> dict:
-    session = db.query(SessionState).filter(SessionState.sender_number == sender_number).first()
-    return session.data if session else {}
-
-def save_session_data(db, sender_number: str, data: dict):
-    session = db.query(SessionState).filter(SessionState.sender_number == sender_number).first()
-    if not session:
-        session = SessionState(sender_number=sender_number)
-        db.add(session)
-    session.data = data
-    db.commit()
-
-def save_new_order(db, owner_id: int, customer_number: str, order_data: dict, bot: WhatsappBot):
-    # Calculate totals using bot-specific config
-    total_amount = get_order_total(order_data.get("order", {}))
+def save_new_order(db: Session, owner_id: int, customer_phone: str, session_data: dict, bot: WhatsappBot):
+    order_items = session_data.get("order", {})
+    total = get_order_total(order_items)
     tax_rate = bot.tax_rate if bot else 0.08
-    tax_amount = total_amount * tax_rate
-    delivery_fee = get_delivery_fee(total_amount, order_data.get("delivery_type")) # Simplified
-    grand_total = total_amount + tax_amount + delivery_fee
-
-    order = Order(
+    tax_amount = total * tax_rate
+    delivery_charge = get_delivery_fee(total, session_data.get("delivery_type"))
+    grand_total = total + tax_amount + delivery_charge
+    
+    new_order = Order(
         owner_id=owner_id,
-        customer_number=customer_number,
-        items_json=json.dumps(order_data.get("order", {})),
-        total_amount=total_amount,
+        customer_number=customer_phone,
+        items_json=json.dumps(order_items),
+        total_amount=total,
         tax_amount=tax_amount,
-        delivery_amount=delivery_fee,
+        delivery_amount=delivery_charge,
         grand_total=grand_total,
-        delivery_type=order_data.get("delivery_type", "delivery")
+        status="Pending"
     )
-    db.add(order)
+    db.add(new_order)
     db.commit()
-    db.refresh(order)
-    return order
+    db.refresh(new_order)
+    return new_order
 
-# ========== Helpers (no circular imports) ==========
+def get_session_data(db: Session, bot_id: int, phone: str):
+    state = db.query(SessionState).filter(SessionState.bot_id == bot_id, SessionState.sender_number == phone).first()
+    return json.loads(state.state_json) if state else {}
 
-# ========== Populate Dummy Data ==========
-def populate_dummy_data(db):
-    """Populates sample data for the first admin user found"""
-    admin = db.query(User).filter(User.role == "admin").first()
-    if not admin:
-        return
-    # Contacts
-    if db.query(Contact).filter(Contact.owner_id == admin.id).count() == 0:
-        sample_contacts = [
-            {"first_name": "Ahmed", "last_name": "Ali", "company": "TechCorp", "phone": "+92300123456", "status": "Hot Lead", "source": "Web"},
-            {"first_name": "Sara", "last_name": "Khan", "company": "DesignStudio", "phone": "+92300123457", "status": "Warm", "source": "Referral"},
-            {"first_name": "John", "last_name": "Smith", "company": "Smith Ltd", "phone": "+92300123458", "status": "New", "source": "Chat"},
-            {"first_name": "Maria", "last_name": "Garcia", "company": "Garcia Corp", "phone": "+92300123459", "status": "Hot Lead", "source": "Call"},
-            {"first_name": "Usman", "last_name": "Tariq", "company": "Tariq Sons", "phone": "+92300123460", "status": "Cold", "source": "Email"}
-        ]
-        for c in sample_contacts:
-            contact = Contact(owner_id=admin.id, **c)
-            db.add(contact)
-    # Deals
-    if db.query(Deal).filter(Deal.owner_id == admin.id).count() == 0:
-        sample_deals = [
-            {"title": "Ahmed Corp deal", "company": "Ahmed Corp", "contact_name": "Ahmed Ali", "value": 5000, "stage": "Proposal", "probability": 60},
-            {"title": "Khan Enterprises", "company": "Khan Enterprises", "contact_name": "Sara Khan", "value": 12000, "stage": "Negotiation", "probability": 80},
-            {"title": "Smith Co", "company": "Smith Co", "contact_name": "John Smith", "value": 3500, "stage": "Discovery", "probability": 20}
-        ]
-        for d in sample_deals:
-            deal = Deal(owner_id=admin.id, **d)
-            db.add(deal)
-    # Calls
-    if db.query(Call).filter(Call.owner_id == admin.id).count() == 0:
-        sample_calls = [
-            {"contact_name": "Ahmed Ali", "phone": "+92300123456", "direction": "Inbound", "duration_minutes": 4.5, "outcome": "Resolved", "agent": "SalesBot"},
-            {"contact_name": "Sara Khan", "phone": "+92300123457", "direction": "Outbound", "duration_minutes": 2.0, "outcome": "Follow-up", "agent": "SupportBot"},
-            {"contact_name": "Unknown", "phone": "+92300123458", "direction": "Missed", "duration_minutes": 0.0, "outcome": "Follow-up", "agent": "System"}
-        ]
-        for c in sample_calls:
-            call = Call(owner_id=admin.id, **c)
-            db.add(call)
-    # Vapi Agents
-    if db.query(VapiAgent).filter(VapiAgent.owner_id == admin.id).count() == 0:
-        sample_agents = [
-            {"name": "Sales Agent", "status": "Live", "total_calls": 24, "conversion_rate": 35.0, "first_message": "Hello!", "system_prompt": "You are a sales agent."},
-            {"name": "Support Agent", "status": "Draft", "total_calls": 8, "conversion_rate": 20.0, "first_message": "Hi there!", "system_prompt": "You are a support agent."}
-        ]
-        for a in sample_agents:
-            agent = VapiAgent(owner_id=admin.id, **a)
-            db.add(agent)
-    # WhatsApp Bot
-    if db.query(WhatsappBot).filter(WhatsappBot.owner_id == admin.id).count() == 0:
-        wbot = WhatsappBot(owner_id=admin.id, name="Restaurant Bot", bot_type="order", business_name="Wild Restaurant", language="en", webhook_url=os.getenv("WEBHOOK_URL", ""))
-        db.add(wbot)
+def save_session_data(db: Session, bot_id: int, phone: str, data: dict):
+    state = db.query(SessionState).filter(SessionState.bot_id == bot_id, SessionState.sender_number == phone).first()
+    if state:
+        state.state_json = json.dumps(data)
+    else:
+        state = SessionState(bot_id=bot_id, sender_number=phone, state_json=json.dumps(data))
+        db.add(state)
     db.commit()
 
-# ========== Legacy in-memory vars (for restaurant bot) ==========
-saved_orders = {}
-customer_sessions = {}
-last_message_time = {}
-customer_order_lookup = {}
-manager_pending = {}
-customer_profiles = {}  # phone -> {name, lang, address, order_history, ...}
-
-def save_profile(sender, session, owner_id=1):
-    """Persist customer profile to DB and update in-memory cache."""
-    if not session.get("name"):
-        return
-    # Update in-memory cache immediately
-    profile = customer_profiles.get(sender, {"order_history": []})
-    profile.update({
-        "name": session.get("name", ""),
-        "address": session.get("address", ""),
-        "lang": session.get("lang", "en"),
-        "delivery_type": session.get("delivery_type", ""),
-        "payment": session.get("payment", ""),
-    })
-    if "order_history" not in profile:
-        profile["order_history"] = []
-    customer_profiles[sender] = profile
-    # Persist to DB
-    try:
-        db = SessionLocal()
-        row = db.query(CustomerProfile).filter(CustomerProfile.phone == sender).first()
-        if not row:
-            row = CustomerProfile(phone=sender, owner_id=owner_id)
-            db.add(row)
-        row.name = profile["name"]
-        row.lang = profile["lang"]
-        row.delivery_type = profile["delivery_type"]
-        row.address = profile["address"]
-        row.payment = profile["payment"]
-        db.commit()
-        db.close()
-    except Exception as e:
-        print(f"save_profile DB error: {e}")
-
-def add_to_order_history(sender, order_id, order_items, owner_id=1):
-    """Append order to customer history in memory and DB."""
-    import time as _time
-    profile = customer_profiles.get(sender, {"order_history": []})
-    if "order_history" not in profile:
-        profile["order_history"] = []
-    items_list = [
-        {"item_id": k, "name": v["item"]["name"], "qty": v["qty"]}
-        for k, v in order_items.items()
-    ]
-    profile["order_history"].append({
-        "order_id": order_id,
-        "items": items_list,
-        "timestamp": _time.time()
-    })
-    profile["order_history"] = profile["order_history"][-10:]
-    customer_profiles[sender] = profile
-    # Persist to DB
-    try:
-        db = SessionLocal()
-        row = db.query(CustomerProfile).filter(CustomerProfile.phone == sender).first()
-        if not row:
-            row = CustomerProfile(phone=sender, owner_id=owner_id)
-            db.add(row)
-        row.order_history = profile["order_history"]
-        db.commit()
-        db.close()
-    except Exception as e:
-        print(f"add_to_order_history DB error: {e}")
-
-def get_favorite_items(sender):
-    """Return top 3 most ordered items for returning customer."""
-    profile = customer_profiles.get(sender, {})
-    history = profile.get("order_history", [])
-    if not history:
-        # Try loading from DB
-        try:
-            db = SessionLocal()
-            row = db.query(CustomerProfile).filter(CustomerProfile.phone == sender).first()
-            db.close()
-            if row:
-                customer_profiles[sender] = {
-                    "name": row.name, "lang": row.lang,
-                    "address": row.address, "delivery_type": row.delivery_type,
-                    "payment": row.payment, "order_history": row.order_history
-                }
-                history = row.order_history
-        except:
-            return []
-    item_counts = {}
-    for order in history:
-        for item in order.get("items", []):
-            name = item.get("name") if isinstance(item, dict) else item
-            if name:
-                item_counts[name] = item_counts.get(name, 0) + 1
-    return [name for name, _ in sorted(item_counts.items(), key=lambda x: x[1], reverse=True)[:3]]
-
-async def save_to_sheet(customer_number, session, order_id):
-    """Save order to Google Sheets (optional). Configure GOOGLE_SHEET_WEBHOOK in .env."""
-    import os, aiohttp
-    webhook = os.getenv("GOOGLE_SHEET_WEBHOOK", "")
-    if not webhook:
-        return
-    try:
-        payload = {
-            "order_id": order_id,
-            "phone": customer_number,
-            "name": session.get("name", ""),
-            "items": [{"name": v["item"]["name"], "qty": v["qty"]} for v in session.get("order", {}).values()],
-            "delivery_type": session.get("delivery_type", ""),
-            "address": session.get("address", ""),
-            "payment": session.get("payment", "")
-        }
-        async with aiohttp.ClientSession() as s:
-            await s.post(webhook, json=payload)
-    except Exception as e:
-        print(f"save_to_sheet error: {e}")
+# ========== Dummy Data & Migration ==========
+def populate_dummy_data(db: Session):
+    if not get_user_by_username(db, "admin"):
+        create_user(db, "admin", os.getenv("ADMIN_PASSWORD", "admin123"), role="admin")
+    if not get_user_by_username(db, "user1"):
+        create_user(db, "user1", "user123", role="user")
 
 def load_customer_profiles_from_db():
-    """Pre-load all customer profiles into memory cache on startup."""
-    try:
-        db = SessionLocal()
-        profiles = db.query(CustomerProfile).all()
-        for p in profiles:
-            customer_profiles[p.phone] = {
-                "name": p.name, "lang": p.lang,
-                "delivery_type": p.delivery_type, "address": p.address,
-                "payment": p.payment, "order_history": p.order_history
-            }
-        db.close()
-        print(f"Loaded {len(profiles)} customer profiles from DB")
-    except Exception as e:
-        print(f"load_customer_profiles_from_db error: {e}")
+    # Placeholder for profiles cache if needed
+    pass
+
+def migrate_db():
+    Base.metadata.create_all(bind=engine)
+    print("Database Migrated Successfully.")
