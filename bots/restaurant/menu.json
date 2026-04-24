@@ -1,14 +1,73 @@
 {
   "deals": {
-    "name": "🔥 Deals",
+    "name": "🔥 Deals & Combos",
     "items": {
-      "DL1": {"name": "Burger Combo", "price": 4.99, "emoji": "🔥", "desc": "Add fries + soda"}
+      "DL1": {"name": "Burger Combo", "price": 4.99, "emoji": "🔥", "desc": "Add Fries + Soda to any burger"},
+      "DL2": {"name": "Smash Deal", "price": 18.99, "emoji": "🍔", "desc": "Any Burger + Fries + Soda"},
+      "DL3": {"name": "Pizza & Wings", "price": 24.99, "emoji": "🍕", "desc": "Any 12\" Pizza + 6 Wings + Soda"},
+      "DL4": {"name": "Double Pizza", "price": 32.99, "emoji": "🍕", "desc": "Two 12\" Pizzas + 2 Sodas"},
+      "DL5": {"name": "Ribs Feast", "price": 28.99, "emoji": "🍖", "desc": "Half Rack Ribs + 2 Sides + Soda"},
+      "DL6": {"name": "Family Bundle", "price": 49.99, "emoji": "👨‍👩‍👧", "desc": "2 Burgers + 1 Pizza + 2 Fries + 4 Sodas"}
     }
   },
   "fastfood": {
-    "name": "🍔 Burgers",
+    "name": "🍔 Burgers & Sandwiches",
     "items": {
-      "FF1": {"name": "Classic Smash Burger", "price": 12.99, "emoji": "🍔", "desc": "Double patty"}
+      "FF1": {"name": "Classic Smash", "price": 12.99, "emoji": "🍔", "desc": "Double patty, cheese, special sauce"},
+      "FF2": {"name": "BBQ Bacon Smash", "price": 14.99, "emoji": "🥓", "desc": "Double patty, bacon, crispy onions"},
+      "FF3": {"name": "Spicy Chicken", "price": 11.99, "emoji": "🍗", "desc": "Crispy chicken, jalapeños, slaw"},
+      "FF4": {"name": "Mushroom Swiss", "price": 13.99, "emoji": "🍄", "desc": "Double patty, sautéed mushrooms"},
+      "FF5": {"name": "Veggie Smash", "price": 10.99, "emoji": "🌱", "desc": "Plant-based patty, avocado"}
+    }
+  },
+  "pizza": {
+    "name": "🍕 Hand-Tossed Pizza",
+    "items": {
+      "PZ1": {"name": "Margherita", "price": 14.99, "emoji": "🍕", "desc": "Fresh basil, tomato, mozzarella"},
+      "PZ2": {"name": "Pepperoni", "price": 16.99, "emoji": "🍕", "desc": "Loaded with crispy pepperoni"},
+      "PZ3": {"name": "BBQ Chicken", "price": 18.99, "emoji": "🍕", "desc": "Grilled chicken, red onions, BBQ sauce"},
+      "PZ4": {"name": "Meat Lovers", "price": 19.99, "emoji": "🍕", "desc": "Pepperoni, sausage, bacon, ham"}
+    }
+  },
+  "bbq": {
+    "name": "🍖 Slow-Smoked BBQ",
+    "items": {
+      "BK1": {"name": "Full Rack Ribs", "price": 26.99, "emoji": "🍖", "desc": "Award-winning smoked ribs + 2 sides"},
+      "BK2": {"name": "Half Rack Ribs", "price": 16.99, "emoji": "🍖", "desc": "Half portion + 2 sides"},
+      "BB1": {"name": "Smoked Brisket", "price": 22.99, "emoji": "🍖", "desc": "1/2 lb sliced brisket + 2 sides"},
+      "BB2": {"name": "Pulled Pork", "price": 18.99, "emoji": "🍖", "desc": "1/2 lb smoked pork + 2 sides"}
+    }
+  },
+  "fish": {
+    "name": "🐟 Fish & Seafood",
+    "items": {
+      "FS1": {"name": "Fish & Chips", "price": 15.99, "emoji": "🐟", "desc": "Beer-battered cod, fries, tartar"},
+      "FS2": {"name": "Grilled Salmon", "price": 21.99, "emoji": "🐟", "desc": "Lemon herb butter, garlic mash"},
+      "FS3": {"name": "Shrimp Basket", "price": 17.99, "emoji": "🍤", "desc": "Crispy fried shrimp, slaw"}
+    }
+  },
+  "sides": {
+    "name": "🍟 Sides & Snacks",
+    "items": {
+      "SD1": {"name": "Signature Fries", "price": 4.99, "emoji": "🍟", "desc": "Crispy and seasoned"},
+      "SD2": {"name": "Mac & Cheese", "price": 6.99, "emoji": "🧀", "desc": "Four cheese blend"},
+      "SD3": {"name": "6 Wings", "price": 8.99, "emoji": "🍗", "desc": "Buffalo or Lemon Pepper"},
+      "SD4": {"name": "Coleslaw", "price": 3.99, "emoji": "🥗", "desc": "Creamy and fresh"}
+    }
+  },
+  "drinks": {
+    "name": "🥤 Drinks & Shakes",
+    "items": {
+      "DR1": {"name": "Coca Cola", "price": 2.50, "emoji": "🥤", "desc": "Can"},
+      "DR2": {"name": "Fresh Lemonade", "price": 3.50, "emoji": "🍋", "desc": "House made"},
+      "DR3": {"name": "Vanilla Shake", "price": 5.99, "emoji": "🍦", "desc": "Creamy classic"}
+    }
+  },
+  "desserts": {
+    "name": "🍰 Sweet Endings",
+    "items": {
+      "DS1": {"name": "NY Cheesecake", "price": 7.99, "emoji": "🍰", "desc": "Berry compote"},
+      "DS2": {"name": "Chocolate Brownie", "price": 6.99, "emoji": "🍫", "desc": "Warm with ice cream"}
     }
   }
 }
