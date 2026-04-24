@@ -522,6 +522,11 @@
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
         try {
             const res = await fetch(`${API_BASE}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : null });
+            if (res.status === 401) {
+                console.warn("Session expired or invalid. Logging out.");
+                logout();
+                throw new Error("Session expired. Please login again.");
+            }
             const data = await res.json();
             console.log(`API Response: ${res.status}`, data);
             if (!res.ok) throw new Error(data.detail || 'API Error');
