@@ -1,4 +1,4 @@
-# flow.py - Complete restaurant flow (Synchronized with D:\restaurant-bot\flow.py)
+# flow.py - Complete restaurant flow (Synchronized & Fixed)
 import time
 import random
 import re
@@ -92,8 +92,8 @@ def new_session(sender=None, bot=None):
         "last_added": None,
         "current_cat": None,
         "conversation": [],
-        "upsell_declined_types": set(),
-        "upsell_shown_for": set(),
+        "upsell_declined_types": [],  # Fix: Must be list for JSON serialization
+        "upsell_shown_for": [],       # Fix: Must be list for JSON serialization
         "order_id": None,
         "deal_context": None,
         "post_order_at": 0,
@@ -217,8 +217,6 @@ async def handle_order_status(sender, session, lang, text, bot=None):
     if not order_id:
         await send_text_message(sender, "I don't see an active order for you. Type *menu* to order! 😊", bot=bot)
         return
-    
-    # In a real DB setup, we'd query the orders table. For now, simplistic response:
     await send_text_message(sender, f"Checking on order #{order_id} for you... 🔍\nOur team is preparing it now!", bot=bot)
 
 # ========== Manager notification helpers ==========
@@ -243,7 +241,7 @@ async def notify_manager(sender, session, order_id, bot=None):
             f"📍 {session.get('delivery_type','?').upper()}\n"
             f"🏠 {session.get('address','N/A')}"
         )
-        await send_manager_action_list(sender, sender, f"🔔 New Order #{order_id}", body, bot=bot)
+        await send_manager_action_list(order_id, sender, f"🔔 New Order #{order_id}", body, bot=bot)
     except Exception as e:
         print(f"Manager Notification Error: {e}")
 
@@ -348,7 +346,6 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
             session["stage"] = "address_update"
             await send_text_message(sender, "Sure! What's your new delivery address?", bot=bot)
         elif text == "REPEAT_CONFIRM":
-            # Repopulate order from history logic here...
             session["stage"] = "menu"
             await send_main_menu(sender, session["order"], lang, bot=bot)
         return
@@ -400,11 +397,38 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
             await prompt_bbq_sides(sender, session, lang, bot=bot)
             return
 
+        # Basic item add
         if item_id in session["order"]: session["order"][item_id]["qty"] += 1
         else: session["order"][item_id] = {"item": found_item, "qty": 1}
         session["last_added"] = item_id
+
+        # Quick combo upsell logic
+        if is_burger(item_id) and item_id not in session["upsell_shown_for"]:
+            session["upsell_shown_for"].append(item_id)
+            session["stage"] = "upsell_combo"
+            await send_quick_combo_upsell(sender, lang, bot=bot)
+            return
+
         session["stage"] = "qty_control"
         await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
+        return
+
+    if stage == "upsell_combo":
+        if text == "ADD_COMBO_DL1":
+            # Add DL1 combo logic
+            MENU = get_bot_menu(bot.phone_number_id if bot else None)
+            item_id = "DL1"
+            _cat, found_item = find_item(item_id, MENU)
+            if found_item:
+                session["order"][item_id] = {"item": found_item, "qty": 1, "components": ["Fries", "Soda"]}
+                session["last_added"] = item_id
+                await send_text_message(sender, "✅ Combo added! Fries and Soda in your cart.", bot=bot)
+        session["stage"] = "qty_control"
+        last = session.get("last_added")
+        if last and last in session["order"]:
+            await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
+        else:
+            await send_cart_view(sender, session["order"], lang, bot=bot)
         return
 
     if stage == "deal_build" and text.startswith("DEAL_PICK_"):
@@ -425,13 +449,43 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
             else: await prompt_bbq_sides(sender, session, lang, bot=bot)
         return
 
+    if text == "QTY_PLUS":
+        last = session.get("last_added")
+        if last and last in session["order"]:
+            session["order"][last]["qty"] += 1
+            await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
+        return
+
+    if text == "QTY_MINUS":
+        last = session.get("last_added")
+        if last and last in session["order"]:
+            session["order"][last]["qty"] -= 1
+            if session["order"][last]["qty"] <= 0: del session["order"][last] ; session["last_added"] = None ; await send_cart_view(sender, session["order"], lang, bot=bot)
+            else: await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
+        return
+
     if text == "CHECKOUT":
         if session["order"]:
-            session["stage"] = "confirm"
-            await send_order_summary(sender, session["order"], lang, bot=bot)
+            if has_any_dessert(session["order"]) or "dessert" in session["upsell_declined_types"]:
+                session["stage"] = "confirm"
+                await send_order_summary(sender, session["order"], lang, bot=bot)
+            else:
+                session["stage"] = "upsell_check"
+                await send_dessert_upsell(sender, session["order"], lang, bot=bot)
         else:
             await send_text_message(sender, t(lang, "cart_empty"), bot=bot)
             await send_main_menu(sender, session["order"], lang, bot=bot)
+        return
+
+    if stage == "upsell_check":
+        if text == "YES_UPSELL":
+            session["stage"] = "items"
+            session["current_cat"] = "desserts"
+            await send_category_items(sender, "desserts", session["order"], lang, bot=bot)
+        else:
+            session["upsell_declined_types"].append("dessert")
+            session["stage"] = "confirm"
+            await send_order_summary(sender, session["order"], lang, bot=bot)
         return
 
     if text == "VIEW_CART":
@@ -447,16 +501,22 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
             await send_text_message(sender, t(lang, "name_ask"), bot=bot)
         return
 
+    if text == "CANCEL_ORDER":
+        session.update(new_session(sender, bot))
+        await send_text_message(sender, t(lang, "cancelled"), bot=bot)
+        await send_main_menu(sender, session["order"], lang, bot=bot)
+        return
+
     if text in ["DELIVERY", "PICKUP"]:
-        session["delivery_type"] = text.lower()
+        total = get_order_total(session["order"])
         if text == "DELIVERY":
-            if session.get("address"):
-                session["stage"] = "payment"
-                await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
-            else:
-                session["stage"] = "address"
-                await send_text_message(sender, t(lang, "address_ask"), bot=bot)
+            if total < MIN_DELIVERY_ORDER: await send_min_order_warning(sender, "delivery", lang, bot=bot) ; return
+            session["delivery_type"] = "delivery"
+            if session.get("address"): session["stage"] = "payment" ; await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
+            else: session["stage"] = "address" ; await send_text_message(sender, t(lang, "address_ask"), bot=bot)
         else:
+            if total < MIN_PICKUP_ORDER: await send_min_order_warning(sender, "pickup", lang, bot=bot) ; return
+            session["delivery_type"] = "pickup"
             session["stage"] = "payment"
             await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
         return
@@ -471,7 +531,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
             order_id = str(int(time.time()))
             payment_url = await create_stripe_checkout_session(order_id, grand_total)
             if payment_url: await send_text_message(sender, f"💳 Pay here:\n{payment_url}", bot=bot)
-            else: await send_text_message(sender, "❌ Payment link failed. Try cash/Apple Pay.", bot=bot)
+            else: await send_text_message(sender, "❌ Payment link failed.", bot=bot)
             return
 
         order_id = await send_order_confirmed(sender, session, lang, bot=bot)
@@ -504,11 +564,21 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
             await send_main_menu(sender, session["order"], lang, bot=bot)
         return
 
+    if is_menu_request(text_lower):
+        session["stage"] = "menu"
+        await send_main_menu(sender, session["order"], lang, bot=bot)
+        return
+
     cat_guess = guess_category(text_lower)
-    if cat_guess and stage not in {"get_name", "address", "payment", "delivery", "confirm"}:
+    protected = {"get_name", "address", "payment", "delivery", "confirm", "upsell_check", "upsell_combo", "bbq_sides", "deal_build"}
+    if cat_guess and stage not in protected:
         session["stage"] = "items"
         session["current_cat"] = cat_guess
         await send_category_items(sender, cat_guess, session["order"], lang, bot=bot)
+        return
+
+    if stage != "post_order":
+        await send_text_message(sender, t(lang, "sorry_not_understood") + " " + t(lang, "menu_prompt"), bot=bot)
         return
 
     reply = await get_ai_response(sender, text, lang, session)
