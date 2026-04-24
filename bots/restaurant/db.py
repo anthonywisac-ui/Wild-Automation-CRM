@@ -111,17 +111,22 @@ def get_bot_menu(phone_number_id=None):
             bot = db.query(WhatsappBot).filter(WhatsappBot.bot_type == "restaurant").first()
         
         if bot and bot.config_json:
-            config = json.loads(bot.config_json)
-            if "categories" in config:
-                dynamic_menu = {}
-                for cat in config["categories"]:
-                    cat_id = cat.get("prefix", "").lower() or cat["id"].replace("cat_", "").lower()
-                    dynamic_menu[cat_id] = {
-                        "name": cat["name"],
-                        "items": {item["id"]: item for item in cat.get("items", [])}
-                    }
-                if dynamic_menu:
+            try:
+                config = json.loads(bot.config_json)
+                if "categories" in config and config["categories"]:
+                    dynamic_menu = DEFAULT_MENU.copy()
+                    for cat in config["categories"]:
+                        cat_id = cat.get("prefix", "").lower() or cat.get("id", "").replace("cat_", "").lower()
+                        if not cat_id: continue
+                        items = {item["id"]: item for item in cat.get("items", [])}
+                        if items:
+                            dynamic_menu[cat_id] = {
+                                "name": cat["name"],
+                                "items": items
+                            }
                     return dynamic_menu
+            except Exception as e:
+                print(f"Dynamic Menu Parse Error: {e}")
         return DEFAULT_MENU
     except Exception as e:
         print(f"Menu Load Error: {e}")
