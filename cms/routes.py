@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from db import get_db, User, get_user_by_username, create_user, BotConfig, get_bot_config, create_bot_config, delete_bot_config
+from db import get_db, User, get_user_by_username, create_user, WhatsappBot
 from auth import verify_password, get_password_hash, create_access_token, decode_token
 from pydantic import BaseModel
 import subprocess
@@ -57,17 +57,27 @@ class BotConfigCreate(BaseModel):
     bot_type: str
     config_json: dict
 
-@router.post("/bots", dependencies=[Depends(get_current_admin)])
-def create_bot(bot: BotConfigCreate, db: Session = Depends(get_db)):
+@router.post("/bots")
+def create_bot(bot: BotConfigCreate, db: Session = Depends(get_db), current_admin: User = Depends(get_current_admin)):
     # Check if bot already exists in filesystem
     bot_path = f"bots/{bot.name}"
     if os.path.exists(bot_path):
         raise HTTPException(status_code=400, detail="Bot folder already exists")
     # Save config to database
-    existing = get_bot_config(db, bot.name)
+    existing = db.query(WhatsappBot).filter(WhatsappBot.name == bot.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Bot config already exists")
-    db_bot = create_bot_config(db, bot.name, bot.bot_type, bot.config_json)
+    
+    # Create new WhatsappBot record
+    db_bot = WhatsappBot(
+        owner_id=current_admin.id,
+        name=bot.name,
+        bot_type=bot.bot_type,
+        config_json=json.dumps(bot.config_json)
+    )
+    db.add(db_bot)
+    db.commit()
+    db.refresh(db_bot)
     # Call generator script
     config_file = f"/tmp/{bot.name}_config.json"
     with open(config_file, "w") as f:
@@ -76,14 +86,14 @@ def create_bot(bot: BotConfigCreate, db: Session = Depends(get_db)):
     os.remove(config_file)
     if result.returncode != 0:
         # Rollback
-        delete_bot_config(db, bot.name)
+        db.delete(db_bot)
         db.commit()
         raise HTTPException(status_code=500, detail=f"Generator failed: {result.stderr}")
     return {"message": f"Bot {bot.name} created", "output": result.stdout}
 
 @router.get("/bots", dependencies=[Depends(get_current_admin)])
 def list_bots(db: Session = Depends(get_db)):
-    bots = db.query(BotConfig).all()
+    bots = db.query(WhatsappBot).all()
     return [{"id": b.id, "name": b.name, "type": b.bot_type, "created": b.created_at} for b in bots]
 
 @router.delete("/bots/{bot_name}", dependencies=[Depends(get_current_admin)])
@@ -93,7 +103,9 @@ def delete_bot(bot_name: str, db: Session = Depends(get_db)):
     if not os.path.exists(bot_path):
         raise HTTPException(status_code=404, detail="Bot folder not found")
     shutil.rmtree(bot_path)
-    delete_bot_config(db, bot_name)
+    db_bot = db.query(WhatsappBot).filter(WhatsappBot.name == bot_name).first()
+    if db_bot:
+        db.delete(db_bot)
     db.commit()
     return {"message": f"Bot {bot_name} deleted"}
 
