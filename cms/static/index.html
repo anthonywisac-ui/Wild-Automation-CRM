@@ -89,6 +89,7 @@
                     <button onclick="showTab('bot_list')" data-tab="bot_list" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-list w-5"></i> All Bots</button>
                     <button onclick="showTab('builder')" data-tab="builder" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-magic w-5"></i> Bot Builder</button>
                     <button onclick="showTab('users')" data-tab="users" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-users-cog w-5"></i> Users</button>
+                    <button onclick="showTab('activity')" data-tab="activity" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-history w-5"></i> Activity Log</button>
                 </div>
             </nav>
             <div class="p-4 border-t border-gray-700 flex items-center justify-between">
@@ -504,6 +505,32 @@
                  <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden"><table class="w-full text-sm text-left"><thead class="bg-gray-700 text-gray-300"><tr><th class="p-4">Contact</th><th>Duration</th><th>Outcome</th><th>Time</th></tr></thead><tbody id="callsTable"></tbody></table></div>
             </div>
 
+            <!-- TAB: Activity Log -->
+            <div id="tab-activity" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold">Activity Log</h1>
+                        <p class="text-gray-400 text-sm">Every admin action — logins, bot edits, config changes.</p>
+                    </div>
+                    <button onclick="loadActivityLog()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2"><i class="fas fa-sync-alt"></i> Refresh</button>
+                </div>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-700 text-gray-300">
+                            <tr>
+                                <th class="p-4 w-44">Time</th>
+                                <th class="p-4 w-32">User</th>
+                                <th class="p-4 w-48">Action</th>
+                                <th class="p-4">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activityLogBody">
+                            <tr><td colspan="4" class="p-8 text-center text-gray-500">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div id="tab-ai" class="tab-content hidden p-6">
                 <h1 class="text-2xl font-bold mb-6">Intelligence Chat</h1>
                 <div class="bg-gray-800 rounded-xl h-[600px] flex flex-col border border-gray-700 shadow-2xl overflow-hidden">
@@ -532,24 +559,22 @@
     let currentUserRole = "user";
     let currentConfig = { categories: [], rules: { tax: 8, delivery: 5, min_order: 20 } };
     let activeCategoryId = null;
+    let _loggingOut = false;
 
     async function apiCall(endpoint, method, body = null) {
-        console.log(`API Call: ${method} ${endpoint}`, body);
         const headers = { 'Content-Type': 'application/json' };
         if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
         try {
             const res = await fetch(`${API_BASE}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : null });
             if (res.status === 401) {
-                console.warn("Session expired or invalid. Logging out.");
-                logout();
+                if (!_loggingOut) { _loggingOut = true; logout(); }
                 throw new Error("Session expired. Please login again.");
             }
             const data = await res.json();
-            console.log(`API Response: ${res.status}`, data);
-            if (!res.ok) throw new Error(data.detail || 'API Error');
+            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
             return data;
         } catch (err) {
-            console.error(`API Error: ${err.message}`);
+            if (!err.message.includes('Session expired')) console.error(`API Error [${method} ${endpoint}]:`, err.message);
             throw err;
         }
     }
@@ -557,16 +582,13 @@
     async function login() {
         const u = document.getElementById('loginUsername').value;
         const p = document.getElementById('loginPassword').value;
-        console.log("Attempting login for:", u);
         try {
             const d = await apiCall('/auth/login', 'POST', { username: u, password: p });
             authToken = d.access_token;
             localStorage.setItem('token', authToken);
-            console.log("Login successful, reloading...");
             location.reload();
-        } catch(e) { 
-            console.error("Login failed:", e.message);
-            document.getElementById('loginError').innerText = e.message; 
+        } catch(e) {
+            document.getElementById('loginError').innerText = e.message;
         }
     }
 
@@ -582,41 +604,8 @@
         showTab('dashboard');
     }
 
-    function showTab(tabName) {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-        document.getElementById('tab-' + tabName)?.classList.remove('hidden');
-        document.querySelectorAll('.sidebar-btn').forEach(btn => {
-            btn.classList.remove('bg-gray-700', 'text-green-400');
-            if (btn.getAttribute('data-tab') === tabName) btn.classList.add('bg-gray-700', 'text-green-400');
-        });
-        
-        if (tabName === 'dashboard') loadDashboardOverview();
-        if (tabName === 'bot_list') loadAllBots();
-        if (tabName === 'builder') loadBuilderBots();
-        if (tabName === 'users') loadUsersPage();
-        if (tabName === 'webhook') loadWebhookUrls();
-        if (tabName === 'agents') loadAgents();
-        if (tabName === 'calls') loadCalls();
-        if (tabName === 'contacts') loadContacts();
-    }
-
-    async function loadDashboardOverview() {
-        const stats = await apiCall('/api/crm/stats', 'GET');
-        document.getElementById('statMessagesToday').innerText = stats.messages_today || 0;
-        document.getElementById('statCallsToday').innerText = stats.calls_today || 0;
-        document.getElementById('statNewLeads').innerText = stats.new_leads || 0;
-        document.getElementById('statConversionRate').innerText = (stats.conversion_rate || 0) + '%';
-        
-        const data = await apiCall('/api/crm/user/overview', 'GET');
-        document.getElementById('whatsappBotsList').innerHTML = data.whatsapp_bots.map(b => `
-            <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                <span>${b.name}</span>
-                <span class="w-2 h-2 rounded-full bg-${b.status === 'live' ? 'green' : 'gray'}-500"></span>
-            </div>`).join('');
-    }
-
     async function loadAllBots() {
-        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+        try { const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
         document.getElementById('allBotsList').innerHTML = bots.map(b => `
             <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex flex-col hover:border-emerald-500 transition-all shadow-lg group">
                 <div class="flex justify-between items-start mb-4">
@@ -638,6 +627,7 @@
                     </button>
                 </div>
             </div>`).join('');
+        } catch(e) { console.error('loadAllBots:', e.message); }
     }
 
     async function duplicateBot(id) {
@@ -690,47 +680,61 @@
     }
 
     async function loadBuilderBots() {
-        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
-        const select = document.getElementById('builderBotSelect');
-        select.innerHTML = '<option value="">Select Bot to Configure</option>' + bots.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
-        
-        const target = localStorage.getItem('target_bot_id');
-        if (target) { select.value = target; loadBotBuilder(target); localStorage.removeItem('target_bot_id'); }
-        select.onchange = (e) => loadBotBuilder(e.target.value);
+        try {
+            const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+            const select = document.getElementById('builderBotSelect');
+            select.innerHTML = '<option value="">Select Bot to Configure</option>' + bots.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+            const target = localStorage.getItem('target_bot_id');
+            if (target) { select.value = target; loadBotBuilder(target); localStorage.removeItem('target_bot_id'); }
+            select.onchange = (e) => { trackActivity('UI_BOT_SELECT', `Bot ID: ${e.target.value}`); loadBotBuilder(e.target.value); };
+        } catch(e) { console.error('loadBuilderBots:', e.message); }
     }
 
     async function loadBotBuilder(id) {
         if (!id) { document.getElementById('builderWorkspace').classList.add('opacity-30', 'pointer-events-none'); return; }
         document.getElementById('builderWorkspace').classList.remove('opacity-30', 'pointer-events-none');
-        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
-        const bot = bots.find(b => b.id == id);
-        currentConfig = JSON.parse(bot.config_json || '{"categories":[], "rules":{"tax":8, "delivery":5, "min_order":20}}');
-        
-        // Dynamic UI Switch based on bot_type
-        if (bot.bot_type === 'restaurant') {
-            document.getElementById('restaurantBuilderNav').classList.remove('hidden');
-            document.getElementById('nicheBuilderNav').classList.add('hidden');
-            document.getElementById('categoryHeader').classList.add('hidden');
-            document.getElementById('nicheEditor').classList.add('hidden');
-        } else {
-            document.getElementById('restaurantBuilderNav').classList.add('hidden');
-            document.getElementById('nicheBuilderNav').classList.remove('hidden');
-            document.getElementById('categoryHeader').classList.add('hidden');
-            document.getElementById('nicheEditor').classList.add('hidden');
-            document.getElementById('nicheConfigJson').value = JSON.stringify(currentConfig, null, 2);
-        }
+        try {
+            const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+            const bot = bots.find(b => b.id == id);
+            if (!bot) { console.error('Bot not found:', id); return; }
+            currentConfig = JSON.parse(bot.config_json || '{}');
+            if (!currentConfig.categories) currentConfig.categories = [];
+            if (!currentConfig.rules) currentConfig.rules = { tax: 8, delivery: 5, min_order: 20 };
 
-        document.getElementById('ruleTax').value = bot.tax_rate || 0;
-        document.getElementById('ruleDelivery').value = bot.delivery_fee || 0;
-        document.getElementById('ruleMinOrder').value = (currentConfig.rules || {}).min_order || 0;
-        document.getElementById('botSystemPrompt').value = bot.system_prompt || '';
-        const ur = currentConfig.upsell_rules || {};
-        document.getElementById('upsellBurgerCombo').checked = ur.burger_combo !== false;
-        document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
-        document.getElementById('upsellDesserts').checked = ur.desserts !== false;
-        activeCategoryId = null;
-        renderCategories();
-        document.getElementById('noCategorySelected').classList.remove('hidden');
+            if (bot.bot_type === 'restaurant') {
+                document.getElementById('restaurantBuilderNav').classList.remove('hidden');
+                document.getElementById('nicheBuilderNav').classList.add('hidden');
+                document.getElementById('categoryHeader').classList.add('hidden');
+                document.getElementById('nicheEditor').classList.add('hidden');
+                // Auto-import effective menu when no categories saved yet
+                if (currentConfig.categories.length === 0) {
+                    try {
+                        const eff = await apiCall(`/api/crm/bots/whatsapp/${id}/effective-menu`, 'GET');
+                        if (eff.categories && eff.categories.length > 0) {
+                            currentConfig.categories = eff.categories;
+                        }
+                    } catch(e) { console.warn('effective-menu fetch failed:', e.message); }
+                }
+            } else {
+                document.getElementById('restaurantBuilderNav').classList.add('hidden');
+                document.getElementById('nicheBuilderNav').classList.remove('hidden');
+                document.getElementById('categoryHeader').classList.add('hidden');
+                document.getElementById('nicheEditor').classList.add('hidden');
+                document.getElementById('nicheConfigJson').value = JSON.stringify(currentConfig, null, 2);
+            }
+
+            document.getElementById('ruleTax').value = bot.tax_rate || 0;
+            document.getElementById('ruleDelivery').value = bot.delivery_fee || 0;
+            document.getElementById('ruleMinOrder').value = currentConfig.rules.min_order || 0;
+            document.getElementById('botSystemPrompt').value = bot.system_prompt || '';
+            const ur = currentConfig.upsell_rules || {};
+            document.getElementById('upsellBurgerCombo').checked = ur.burger_combo !== false;
+            document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
+            document.getElementById('upsellDesserts').checked = ur.desserts !== false;
+            activeCategoryId = null;
+            renderCategories();
+            document.getElementById('noCategorySelected').classList.remove('hidden');
+        } catch(e) { console.error('loadBotBuilder:', e.message); }
     }
 
     function selectNicheConfig() {
@@ -962,8 +966,6 @@
     function logout() { localStorage.removeItem('token'); location.reload(); }
     function copyText(id) { navigator.clipboard.writeText(document.getElementById(id).innerText); alert('Copied!'); }
 
-    // ── showTab extended ─────────────────────────────────────────────────────
-    const _origShowTab = showTab;
     function showTab(tabName) {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
         document.getElementById('tab-' + tabName)?.classList.remove('hidden');
@@ -981,6 +983,8 @@
         if (tabName === 'contacts') loadContacts();
         if (tabName === 'pipeline') loadPipeline();
         if (tabName === 'settings') loadSettings();
+        if (tabName === 'activity') loadActivityLog();
+        trackActivity('UI_NAV', `Navigated to: ${tabName}`);
     }
 
     async function deployBotWizard() {
@@ -1255,7 +1259,43 @@
         } catch(e) {}
     }
 
-    if (authToken) loadUserAndDashboard().catch(() => logout());
+    if (authToken) {
+        loadUserAndDashboard().catch(err => {
+            if (err.message && err.message.includes('Session expired')) logout();
+            else console.error('Dashboard load error (keeping session):', err.message);
+        });
+    }
+
+    // ── Activity Log ──────────────────────────────────────────────────────────
+    async function loadActivityLog() {
+        const tbody = document.getElementById('activityLogBody');
+        try {
+            const logs = await apiCall('/api/crm/admin/audit-logs', 'GET');
+            const actionColors = {
+                LOGIN: 'text-emerald-400', LOGOUT: 'text-slate-400',
+                UPDATE_BOT: 'text-blue-400', CREATE_BOT: 'text-green-400',
+                DELETE_BOT: 'text-red-400', DUPLICATE_BOT: 'text-purple-400',
+                UI_NAV: 'text-slate-500', UI_BOT_SELECT: 'text-cyan-400',
+            };
+            tbody.innerHTML = logs.length ? logs.map(l => {
+                const color = actionColors[l.action] || 'text-yellow-400';
+                const dt = new Date(l.created_at);
+                const ts = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString();
+                return `<tr class="border-b border-gray-700 hover:bg-gray-700/30">
+                    <td class="p-3 text-gray-500 text-xs font-mono whitespace-nowrap">${ts}</td>
+                    <td class="p-3 font-medium text-sm">${l.user}</td>
+                    <td class="p-3"><span class="text-xs font-mono font-bold ${color}">${l.action}</span></td>
+                    <td class="p-3 text-gray-400 text-xs">${l.details}</td>
+                </tr>`;
+            }).join('') : '<tr><td colspan="4" class="p-8 text-center text-gray-500">No activity yet.</td></tr>';
+        } catch(e) {
+            tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-red-400">${e.message}</td></tr>`;
+        }
+    }
+
+    async function trackActivity(action, details) {
+        try { await apiCall('/api/crm/activity-log', 'POST', { action, details }); } catch(e) {}
+    }
 </script>
 </body>
 </html>
