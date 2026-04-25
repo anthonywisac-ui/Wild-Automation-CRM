@@ -484,6 +484,12 @@
                         </div>
                     </div>
                 </div>
+                <div class="bg-gray-800 rounded-xl p-5 border border-gray-700 mb-4">
+                    <h2 class="font-bold mb-2">🍽️ Demo Restaurant Bots</h2>
+                    <p class="text-sm text-gray-400 mb-4">Create all 7 demo restaurant bots (Quick Bites USA, Crispy Cluck USA, Peri Peri UK, Café Paris, Operation Shawarma Dubai, Desi Karahi House, Pizza Palace). Safe to run multiple times — skips existing bots.</p>
+                    <button onclick="seedDemoBots()" class="bg-green-600 hover:bg-green-500 px-6 py-2 rounded-lg font-bold">🚀 Seed Demo Bots</button>
+                    <div id="seedResult" class="mt-3 text-sm text-gray-300 hidden"></div>
+                </div>
             </div>
 
             <!-- Other Tabs (Users, Agents, etc.) omitted for brevity but should remain -->
@@ -1497,6 +1503,25 @@
             alert('✅ AI config saved!');
         } catch(e) { alert(e.message); }
     }
+    async function seedDemoBots() {
+        const btn = event.target;
+        const res = document.getElementById('seedResult');
+        btn.disabled = true; btn.innerText = '⏳ Creating bots...';
+        res.classList.add('hidden');
+        try {
+            const data = await apiCall('/api/crm/admin/seed-demo-bots', 'POST');
+            res.classList.remove('hidden');
+            res.innerHTML = `<span class="text-green-400">${data.message}</span>` +
+                (data.created.length ? `<br>✅ Created: ${data.created.join(', ')}` : '') +
+                (data.skipped.length ? `<br>⚠️ Skipped: ${data.skipped.join(', ')}` : '');
+            if (data.created.length) setTimeout(() => loadBuilderBots(), 1000);
+        } catch(e) {
+            res.classList.remove('hidden');
+            res.innerHTML = `<span class="text-red-400">❌ ${e.message}</span>`;
+        }
+        btn.disabled = false; btn.innerText = '🚀 Seed Demo Bots';
+    }
+
     async function deleteAccount() {
         const confirmed = document.getElementById('deleteConfirmText').value;
         if (confirmed !== 'DELETE') { alert('Type DELETE to confirm'); return; }

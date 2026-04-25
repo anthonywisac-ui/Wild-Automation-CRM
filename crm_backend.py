@@ -384,11 +384,8 @@ def duplicate_bot(bot_id: int, current_user: User = Depends(get_current_user), d
         delivery_fee=original.delivery_fee,
         system_prompt=original.system_prompt,
         ai_provider=original.ai_provider,
-        # SaaS Founder logic: Copy AI keys if copying within same account, but keep WhatsApp credentials blank
-        # unless it's a "master bot" deployment. For now, copy AI keys.
-        groq_api_key=original.groq_api_key,
-        gemini_api_key=original.gemini_api_key,
-        openai_api_key=original.openai_api_key,
+        ai_api_key=original.ai_api_key,
+        manager_number=original.manager_number,
         meta_token="",
         phone_number_id="",
         waba_id="",
@@ -582,6 +579,45 @@ def get_audit_logs(admin: User = Depends(require_admin), db: Session = Depends(g
         "id": l.id, "user": l.user.username if l.user else "System",
         "action": l.action, "details": l.details, "created_at": l.created_at.isoformat()
     } for l in logs]
+
+# ========== Seed Demo Bots ==========
+@router.post("/admin/seed-demo-bots")
+def seed_demo_bots(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """One-click seed all 7 demo restaurant bots. Safe to call multiple times (skips existing)."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(__file__))
+    from populate_demo_bots import BOTS, make_config, MANAGER_NUMBER
+    created, skipped = [], []
+    for b in BOTS:
+        existing = db.query(WhatsappBot).filter(WhatsappBot.name == b["name"]).first()
+        if existing:
+            skipped.append(b["name"])
+            continue
+        new_bot = WhatsappBot(
+            owner_id=admin.id,
+            name=b["name"],
+            business_name=b["business_name"],
+            bot_type=b.get("bot_type", "restaurant"),
+            meta_token="", phone_number_id="", waba_id="", verify_token="",
+            manager_number=MANAGER_NUMBER,
+            ai_provider="groq", ai_api_key="",
+            language="en",
+            system_prompt=b.get("system_prompt", ""),
+            tax_rate=b.get("tax_rate", 0.08),
+            delivery_fee=b.get("delivery_fee", 3.0),
+            config_json=b["config"],
+            status="pending_config",
+        )
+        db.add(new_bot)
+        db.flush()
+        admin_bots = admin.bots
+        if b["name"] not in admin_bots:
+            admin_bots.append(b["name"])
+            admin.bots = admin_bots
+        created.append(b["name"])
+    db.commit()
+    log_audit(db, admin.id, "SEED_DEMO_BOTS", f"Created {len(created)}, skipped {len(skipped)}")
+    return {"created": created, "skipped": skipped, "message": f"✅ {len(created)} bots created, {len(skipped)} already existed"}
 
 # ========== AI Chat ==========
 @router.post("/ai/chat")
