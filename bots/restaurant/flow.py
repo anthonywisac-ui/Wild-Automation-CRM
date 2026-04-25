@@ -731,9 +731,11 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         pending = session.get("deal_context", {}).get("deal_id", "")
         if pending.endswith("_PENDING"):
             orig_deal_id = pending.replace("_PENDING", "")
-            session["deal_context"] = {} # Clear it so we don't loop
-            # Re-run handle_flow for the original deal with the correct 'ADD_' prefix
-            return await handle_flow(sender, f"ADD_{orig_deal_id}", is_button=True, bot=bot, db_session=db_session)
+            # IMPORTANT: Clear context before re-triggering to prevent loops
+            session["deal_context"] = {} 
+            # Re-run handle_flow for the original deal
+            await handle_flow(sender, f"ADD_{orig_deal_id}", is_button=True, bot=bot, db_session=db_session)
+            return # Stop here, handle_flow will take over the response
 
         if item_id.startswith("DL"):
             await send_text_message(sender, t(lang, "deal_added"), bot=bot)
