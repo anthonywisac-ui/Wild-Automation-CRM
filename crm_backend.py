@@ -399,6 +399,39 @@ def duplicate_bot(bot_id: int, current_user: User = Depends(get_current_user), d
     log_audit(db, current_user.id, "DUPLICATE_BOT", f"Duplicated bot {original.name} to {new_name}")
     return {"id": new_bot.id, "message": "Bot duplicated successfully", "new_name": new_name}
 
+@router.get("/bots/whatsapp/{bot_id}/effective-menu")
+def get_effective_menu(bot_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return the bot's active menu in builder format, falling back to default menu."""
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    try:
+        from bots.restaurant.db import get_bot_menu
+        menu = get_bot_menu(bot.phone_number_id or None)
+        categories = []
+        for cat_key, cat_data in menu.items():
+            items_dict = cat_data.get("items", {})
+            items = [
+                {"id": iid, "name": v.get("name",""), "price": v.get("price",0),
+                 "emoji": v.get("emoji","📦"), "desc": v.get("desc",""), "addons": v.get("addons","")}
+                for iid, v in items_dict.items()
+            ]
+            first_id = next(iter(items_dict), "")
+            prefix = ''.join(c for c in first_id if c.isalpha())[:4]
+            categories.append({"id": f"cat_{cat_key}", "name": cat_data.get("name", cat_key.title()),
+                                "prefix": prefix, "type": "normal", "items": items})
+        return {"categories": categories}
+    except Exception as e:
+        raise HTTPException(500, f"Could not load menu: {e}")
+
+@router.post("/activity-log")
+def log_frontend_activity(data: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Log frontend UI events to audit log."""
+    action = data.get("action", "UI_EVENT")[:64]
+    details = data.get("details", "")[:512]
+    log_audit(db, current_user.id, action, details)
+    return {"ok": True}
+
 @router.delete("/bots/whatsapp/{bot_id}")
 def delete_bot_api(bot_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
