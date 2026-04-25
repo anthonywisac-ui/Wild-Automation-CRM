@@ -62,11 +62,11 @@ def get_deal_rules(bot):
     """
     defaults = {
         "DL1": {"requires": "burger_in_cart"},
-        "DL2": {"picks": ["burger"]},
+        "DL2": {"picks": ["fastfood"]},
         "DL3": {"picks": ["pizza"]},
-        "DL4": {"picks": ["burger"]},  # Updated to Burger choice as requested
+        "DL4": {"picks": ["pizza", "pizza"]},
         "DL5": {"picks": ["2sides"]},
-        "DL6": {"picks": []},
+        "DL6": {"picks": ["fastfood", "fastfood", "pizza"]},
     }
     if not bot: return defaults
     try:
@@ -83,11 +83,7 @@ SIDE_CHOICES = {
     "SALAD": "Caesar Salad",
 }
 
-CAT_MAP = {
-    "CAT_DEALS": "deals", "CAT_FASTFOOD": "fastfood", "CAT_PIZZA": "pizza",
-    "CAT_BBQ": "bbq", "CAT_FISH": "fish", "CAT_SIDES": "sides",
-    "CAT_DRINKS": "drinks", "CAT_DESSERTS": "desserts",
-}
+# Dynamic: any CAT_{KEY} maps to that menu key (no hardcoded list needed)
 
 ORDERING_STAGES = {
     "items", "qty_control", "upsell_check", "upsell_combo", "confirm",
@@ -100,28 +96,38 @@ ORDERING_STAGES = {
 async def prompt_deal_pick(sender, session, kind, lang="en", bot=None):
     ctx = session["deal_context"]
     deal_id = ctx["deal_id"]
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot_id=bot.id if bot else None)
 
-    if kind == "burger":
-        cat_key = "fastfood"
-        prompt_key = "choose_burger_deal"
-    elif kind == "pizza":
-        already = sum(1 for p in ctx["picks"] if p.get("item_id", "").startswith("PZ"))
-        cat_key = "pizza"
-        if deal_id == "DL4":
-            prompt_key = "choose_2nd_pizza" if already >= 1 else "choose_2pizzas"
-        else:
-            prompt_key = "choose_pizza_deal"
-    elif kind == "2sides":
+    if kind == "2sides":
         session["stage"] = "bbq_sides"
         ctx["sides_needed"] = 2
         ctx.setdefault("sides", [])
         await prompt_bbq_sides(sender, session, lang, bot=bot)
         return
+
+    # Normalize legacy "burger" to category key
+    if kind == "burger":
+        kind = "fastfood"
+
+    if kind == "fastfood":
+        cat_key = "fastfood"
+        already_burgers = sum(1 for p in ctx["picks"] if p.get("item_id", "").startswith("FF"))
+        prompt_key = "choose_2nd_burger" if already_burgers >= 1 else "choose_burger_deal"
+    elif kind == "pizza":
+        cat_key = "pizza"
+        already = sum(1 for p in ctx["picks"] if p.get("item_id", "").startswith("PZ"))
+        if deal_id == "DL4":
+            prompt_key = "choose_2nd_pizza" if already >= 1 else "choose_2pizzas"
+        else:
+            prompt_key = "choose_pizza_deal"
     else:
-        return
+        # Generic: any category key passed directly from frontend deal_rules
+        cat_key = kind
+        prompt_key = "choose_item_deal"
 
     cat = MENU.get(cat_key, {"name": cat_key.title(), "items": {}})
+    if not cat.get("items"):
+        return
     rows = []
     for item_id, item in cat["items"].items():
         title = truncate_title(f"{item.get('emoji', '🍔')} {item['name']}", 24)
@@ -143,9 +149,11 @@ async def finalize_deal(sender, session, lang="en", bot=None):
     if deal_id == "DL2":
         components += ["Fries", "Soda"]
     elif deal_id == "DL3":
-        components += ["6 Wings"]
+        components += ["6 Wings", "Soda"]
     elif deal_id == "DL4":
         components += ["2 Sodas"]
+    elif deal_id == "DL6":
+        components += ["2 Fries", "4 Sodas"]
 
     order_entry = {"item": deal_item, "qty": 1, "components": components}
     key = deal_id
@@ -186,7 +194,7 @@ async def prompt_bbq_sides(sender, session, lang="en", bot=None):
 async def finalize_bbq_sides(sender, session, lang="en", bot=None):
     ctx = session["deal_context"]
     sides = ctx.get("sides", [])
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot_id=bot.id if bot else None)
 
     if ctx.get("deal_id") == "DL5":
         deal_item = MENU["deals"]["items"]["DL5"]
@@ -376,7 +384,7 @@ async def try_add_by_quantity(sender, session, text_lower, lang, bot=None):
         return False
     search_term = match.group(2).strip()
 
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot_id=bot.id if bot else None)
     item_id, found_item = None, None
     for cat in MENU.values():
         for iid, item in cat.get("items", {}).items():
@@ -493,7 +501,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 await send_repeat_order_confirm(sender, last_items, addr, lang, bot=bot)
             else:
                 session["stage"] = "menu"
-                MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+                MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
                 await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         elif text in ["NEW_ORDER", "REPEAT_ADD_MORE"]:
             session["stage"] = "menu"
@@ -504,7 +512,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         elif text == "REPEAT_CONFIRM":
             profile = get_profile_db(sender, bot.owner_id if bot else 1)
             history = profile.get("order_history", [])
-            MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+            MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
             if history:
                 last_items = history[-1].get("items", [])
                 session["order"] = {}
@@ -542,7 +550,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         if text == "REPEAT_CONFIRM":
             profile = get_profile_db(sender, bot.owner_id if bot else 1)
             history = profile.get("order_history", [])
-            MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+            MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
             if history:
                 last_items = history[-1].get("items", [])
                 session["order"] = {}
@@ -586,7 +594,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         return
 
     # Menu loading
-    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+    MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
 
     if stage == "lang_select":
         lang_map = {"LANG_EN": "en", "LANG_AR": "ar", "LANG_HI": "hi", "LANG_FR": "fr", "LANG_DE": "de", "LANG_RU": "ru", "LANG_ZH": "zh", "LANG_ML": "ml"}
@@ -620,16 +628,17 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         await send_cart_view(sender, session["order"], lang, bot=bot)
         return
 
-    # Explicit category navigation
-    if text in CAT_MAP:
+    # Dynamic category navigation: CAT_{any_key}
+    if text.startswith("CAT_"):
+        cat_key = text[4:].lower()
         session["stage"] = "items"
-        session["current_cat"] = CAT_MAP[text]
-        await send_category_items(sender, CAT_MAP[text], session["order"], lang, bot=bot, db_session=db_session)
+        session["current_cat"] = cat_key
+        await send_category_items(sender, cat_key, session["order"], lang, bot=bot, db_session=db_session)
         return
 
     # ADD_COMBO_DL1 must be checked BEFORE generic startswith("ADD_") or it gets eaten
     if text == "ADD_COMBO_DL1":
-        MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+        MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
         try:
             deal_item = MENU["deals"]["items"]["DL1"]
             if "DL1" in session["order"]:

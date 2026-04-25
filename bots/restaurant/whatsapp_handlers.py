@@ -59,41 +59,55 @@ async def send_language_selection(sender, bot=None):
     await _send_request(payload, bot)
 
 async def send_main_menu(sender, current_order, lang, bot=None, db_session=None):
+    from .db import get_bot_menu
+    import json as _json
+    MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
     total = get_order_total(current_order)
     cart_text = f"\n\n🛒 ${total:.2f}" if current_order else ""
+    bot_name = (bot.business_name or bot.name) if bot else "Restaurant"
+
+    DEALS_KEYS = {"deals", "combos", "specials", "offers", "hotdeals", "hot_deals"}
+    EXTRAS_KEYS = {"sides", "drinks", "desserts", "beverages", "extras", "snacks", "bread", "sauces"}
+
+    deals_rows, main_rows, extras_rows = [], [], []
+    for cat_key, cat_data in MENU.items():
+        if not cat_data.get("items"):
+            continue
+        row = {"id": f"CAT_{cat_key.upper()}", "title": truncate_title(cat_data["name"], 24), "description": ""}
+        if cat_key in DEALS_KEYS:
+            deals_rows.append(row)
+        elif cat_key in EXTRAS_KEYS:
+            extras_rows.append(row)
+        else:
+            main_rows.append(row)
+
+    sections = []
+    if deals_rows:
+        sections.append({"title": "🔥 Best Value", "rows": deals_rows[:10]})
+    if main_rows:
+        sections.append({"title": "Main Menu", "rows": main_rows[:10]})
+    if extras_rows:
+        sections.append({"title": "Extras", "rows": extras_rows[:10]})
+    if not sections:
+        sections = [{"title": "Menu", "rows": [{"id": "CAT_DEALS", "title": "View Menu", "description": ""}]}]
+
     payload = {
         "messaging_product": "whatsapp",
         "to": sender,
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": "🍽️ Wild Bites Restaurant"},
+            "header": {"type": "text", "text": truncate_title(f"🍽️ {bot_name}", 60)},
             "body": {"text": f"{t(lang, 'menu_header')}\n{t(lang, 'craving')}{cart_text}"},
-            "footer": {"text": "Fast Delivery | Fresh Food | Best Value"},
-            "action": {
-                "button": t(lang, "browse"),
-                "sections": [
-                    {"title": "Start Here", "rows": [{"id": "CAT_DEALS", "title": "Deals (Best Value)", "description": "Combo meals & bundles"}]},
-                    {"title": "Main Course", "rows": [
-                        {"id": "CAT_FASTFOOD", "title": "Burgers & Fast Food", "description": "Smash, chicken, BBQ bacon"},
-                        {"id": "CAT_PIZZA", "title": "Pizza (12 inch)", "description": "Margherita, BBQ, Meat Lovers"},
-                        {"id": "CAT_BBQ", "title": "BBQ", "description": "Ribs, brisket, pulled pork"},
-                        {"id": "CAT_FISH", "title": "Fish & Seafood", "description": "Cod, salmon, shrimp"}
-                    ]},
-                    {"title": "Extras", "rows": [
-                        {"id": "CAT_SIDES", "title": "Sides & Snacks", "description": "Fries, wings, nachos"},
-                        {"id": "CAT_DRINKS", "title": "Drinks & Shakes", "description": "Sodas, shakes, juices"},
-                        {"id": "CAT_DESSERTS", "title": "Desserts", "description": "Cake, cheesecake, sundae"}
-                    ]}
-                ]
-            }
+            "footer": {"text": "Fresh Food | Best Value"},
+            "action": {"button": t(lang, "browse"), "sections": sections}
         }
     }
     await _send_request(payload, bot)
 
 async def send_category_items(sender, cat_key, current_order, lang, bot=None, db_session=None):
     from .db import get_bot_menu
-    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+    MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
     cat = MENU.get(cat_key, {"name": cat_key.title(), "items": {}})
     total = get_order_total(current_order)
     cart_text = f"\n\n🛒 ${total:.2f}" if current_order else ""
@@ -196,7 +210,7 @@ async def send_quick_upsell(sender, item_id, message, lang, upsell_type="generic
 
 async def send_dessert_upsell(sender, order, lang, bot=None, db_session=None):
     from .db import get_bot_menu
-    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+    MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
     total = get_order_total(order)
     ds = MENU.get("desserts", {"items": {}})["items"]
     dessert_line = " | ".join([f"{v.get('emoji','🍰')} {v['name']} ${v['price']:.2f}" for v in list(ds.values())[:3]])

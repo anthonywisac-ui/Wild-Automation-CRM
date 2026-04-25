@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from db import get_db, WhatsappBot, WebhookEvent, ChatHistory, Contact, SessionLocal, User, log_bot_event
 from ai_utils import get_ai_response
 from session import SharedSession
+from utils import truncate_title
 
 router = APIRouter(tags=["WhatsApp Webhook"])
 logger = logging.getLogger(__name__)
@@ -44,6 +45,32 @@ async def trigger_vapi_outbound_call(sender_phone: str, bot: WhatsappBot, db: Se
     session = await SharedSession.get_session()
     async with session.post(url, json=payload, headers=headers) as resp:
         return resp.status == 201
+
+# ========== Multi-Bot Routing Session ==========
+_bot_routing: dict = {}   # {sender: {"bot_id": int, "expires": float}}
+_ROUTING_TTL = 7200       # 2 hours
+
+def _get_routed_bot(sender: str, bots: list):
+    entry = _bot_routing.get(sender)
+    if entry and entry["expires"] > time.time():
+        return next((b for b in bots if b.id == entry["bot_id"]), None)
+    return None
+
+def _set_routed_bot(sender: str, bot_id: int):
+    _bot_routing[sender] = {"bot_id": bot_id, "expires": time.time() + _ROUTING_TTL}
+
+async def _send_bot_selector(sender: str, bots: list, cred_bot):
+    from bots.restaurant.whatsapp_handlers import send_list_message
+    rows = [{"id": f"SELECT_BOT_{b.id}",
+             "title": truncate_title(b.business_name or b.name, 24),
+             "description": (b.bot_type or "restaurant").title()} for b in bots[:10]]
+    await send_list_message(
+        sender, "🍽️ Welcome!",
+        "We have multiple restaurants. Choose one to start ordering:",
+        "Our Restaurants", "Browse Menus",
+        [{"title": "Available Restaurants", "rows": rows}],
+        bot=cred_bot
+    )
 
 # ========== Simple Rate Limiter (per sender) ==========
 _rate_limit: dict = {}  # {sender: [timestamps]}
@@ -94,11 +121,15 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
         metadata = value.get("metadata", {})
         phone_number_id = metadata.get("phone_number_id", "")
 
-        # ── 1. Identify the Bot ──────────────────────────────────────────────
-        bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == phone_number_id).first()
-        if not bot:
+        # ── 1. Identify the Bot (supports multi-bot on same number) ─────────
+        bots = db.query(WhatsappBot).filter(
+            WhatsappBot.phone_number_id == phone_number_id,
+            WhatsappBot.status != "deleted"
+        ).all()
+        if not bots:
             logger.warning(f"No bot found for phone_number_id: {phone_number_id}")
             return {"status": "ok"}
+        bot = bots[0]  # will be overridden below if multi-bot
 
         # ── 2. Background Logging ─────────────────────────────────────────────
         def log_webhook_async(owner_id, payload):
@@ -156,6 +187,39 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
         if not user_msg:
             db.commit()
             return {"status": "ok"}
+
+        # ── Multi-Bot Routing ────────────────────────────────────────────────
+        if len(bots) > 1:
+            if user_msg.startswith("SELECT_BOT_"):
+                try:
+                    sel_id = int(user_msg.replace("SELECT_BOT_", ""))
+                    sel_bot = next((b for b in bots if b.id == sel_id), None)
+                    if sel_bot:
+                        _set_routed_bot(sender, sel_id)
+                        bot = sel_bot
+                        from whatsapp_handlers import send_text_message_v2
+                        await send_text_message_v2(
+                            sender,
+                            f"✅ Welcome to *{bot.business_name or bot.name}*! 🍽️\n\nType *menu* to browse or say hi to get started!",
+                            bot
+                        )
+                        db.commit()
+                        return {"status": "ok"}
+                except (ValueError, AttributeError):
+                    pass
+            elif user_msg.lower() in ["change", "restaurants", "switch", "back to menu"]:
+                _bot_routing.pop(sender, None)
+                await _send_bot_selector(sender, bots, bots[0])
+                db.commit()
+                return {"status": "ok"}
+            else:
+                routed = _get_routed_bot(sender, bots)
+                if routed:
+                    bot = routed
+                else:
+                    await _send_bot_selector(sender, bots, bots[0])
+                    db.commit()
+                    return {"status": "ok"}
 
         # ── VAPI HANDOFF CHECK ──────────────────────────────────────────────
         handoff_keywords = ["call me", "talk to human", "speak with someone", "voice call"]
