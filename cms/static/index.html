@@ -981,7 +981,10 @@
                 <div class="mt-3 pt-3 border-t border-emerald-500/20 bg-emerald-500/5 -mx-5 -mb-5 p-5 rounded-b-xl">
                     <div class="flex justify-between items-center mb-3">
                         <label class="block text-[9px] font-bold text-emerald-400 uppercase">Sequence of Logic</label>
-                        <button onclick="addDealStep('${(cat.prefix||'DL')}${idx+1}')" class="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded hover:bg-emerald-500 hover:text-white transition-all">+ Add Step</button>
+                        <div class="flex gap-1">
+                            <button onclick="addDealStep('${(cat.prefix||'DL')}${idx+1}', 'must_have')" class="text-[9px] bg-emerald-500 text-white px-2 py-1 rounded hover:bg-emerald-600 transition-all"><i class="fas fa-lock mr-1"></i>+ Must Have</button>
+                            <button onclick="addDealStep('${(cat.prefix||'DL')}${idx+1}', 'pick')" class="text-[9px] bg-slate-800 text-emerald-400 px-2 py-1 rounded border border-emerald-500/30 hover:bg-emerald-500 hover:text-white transition-all"><i class="fas fa-hand-pointer mr-1"></i>+ Pick Item</button>
+                        </div>
                     </div>
                     <div class="space-y-2" id="dealSteps_${(cat.prefix||'DL')}${idx+1}">
                         ${renderDealStepsUI((cat.prefix||'DL')+(idx+1))}
@@ -1045,32 +1048,52 @@
         const r = rules[dealId] || {};
         const steps = [];
         
-        if (r.requires === 'burger_in_cart') steps.push({ type: 'requires_burger' });
-        (r.picks || []).forEach(p => steps.push({ type: 'pick_' + p }));
+        let requires = r.requires || [];
+        if (typeof requires === 'string') requires = [requires];
+        requires.forEach(req => steps.push({ type: 'must_have', val: req }));
+        
+        (r.picks || []).forEach(p => steps.push({ type: 'pick', val: p }));
 
         if (steps.length === 0) return '<div class="text-[10px] text-slate-500 italic">No special logic. Instant add.</div>';
 
-        return steps.map((s, i) => `
+        return steps.map((s, i) => {
+            if (s.type === 'must_have') {
+                return `
+                <div class="flex gap-2 items-center">
+                    <div class="bg-emerald-500 border border-emerald-400 text-[10px] text-white w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"><i class="fas fa-lock text-[8px]"></i></div>
+                    <div class="flex-1 flex gap-1 items-center bg-slate-950 border border-emerald-500/30 rounded-lg p-1">
+                        <span class="text-[9px] text-slate-500 px-1 font-bold uppercase">Must have:</span>
+                        <input type="text" value="${escHtml(s.val === 'burger_in_cart' ? 'Burger' : s.val)}" onchange="updateDealStepValue('${dealId}', ${i}, this.value)" class="flex-1 bg-transparent border-none text-[10px] text-emerald-400 outline-none p-1" placeholder="e.g. Pizza">
+                    </div>
+                    <button onclick="removeDealStep('${dealId}', ${i})" class="text-rose-500/50 hover:text-rose-500 p-1"><i class="fas fa-times-circle"></i></button>
+                </div>`;
+            }
+            return `
             <div class="flex gap-2 items-center">
                 <div class="bg-slate-950/50 border border-emerald-500/20 text-[10px] text-slate-400 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">${i+1}</div>
-                <select onchange="updateDealStep('${dealId}', ${i}, this.value)" class="flex-1 bg-slate-950 border border-emerald-500/30 text-[10px] text-emerald-400 p-1.5 rounded-lg outline-none focus:border-emerald-500 cursor-pointer">
-                    <option value="requires_burger" ${s.type==='requires_burger'?'selected':''}>🍔 Must have Burger in Cart</option>
+                <select onchange="updateDealStepValue('${dealId}', ${i}, this.value)" class="flex-1 bg-slate-950 border border-emerald-500/30 text-[10px] text-emerald-400 p-1.5 rounded-lg outline-none focus:border-emerald-500 cursor-pointer">
                     ${currentConfig.categories.filter(c => c.type !== 'deal').map(c => `
-                        <option value="pick_${c.id.replace('cat_','')}" ${s.type==='pick_'+c.id.replace('cat_','') ? 'selected' : ''}>✨ Pick from: ${c.name}</option>
+                        <option value="${c.id.replace('cat_','')}" ${s.val===c.id.replace('cat_','') ? 'selected' : ''}>✨ Pick from: ${c.name}</option>
                     `).join('')}
                 </select>
                 <button onclick="removeDealStep('${dealId}', ${i})" class="text-rose-500/50 hover:text-rose-500 p-1"><i class="fas fa-times-circle"></i></button>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
 
-    function addDealStep(dealId) {
+    function addDealStep(dealId, type = 'pick') {
         if (!currentConfig.deal_rules) currentConfig.deal_rules = {};
         if (!currentConfig.deal_rules[dealId]) currentConfig.deal_rules[dealId] = { picks: [] };
         
         const r = currentConfig.deal_rules[dealId];
-        if (!r.picks) r.picks = [];
-        r.picks.push('fastfood'); // Default to first cat
+        if (type === 'must_have') {
+            if (!r.requires) r.requires = [];
+            if (typeof r.requires === 'string') r.requires = [r.requires];
+            r.requires.push('Pizza');
+        } else {
+            if (!r.picks) r.picks = [];
+            r.picks.push('fastfood');
+        }
         isDirty = true;
         renderItems();
     }
@@ -1080,38 +1103,45 @@
         if (!r) return;
         
         let steps = [];
-        if (r.requires === 'burger_in_cart') steps.push({ type: 'requires_burger' });
-        (r.picks || []).forEach(p => steps.push({ type: 'pick_' + p }));
+        let requires = r.requires || [];
+        if (typeof requires === 'string') requires = [requires];
+        requires.forEach(req => steps.push({ type: 'must_have', val: req }));
+        (r.picks || []).forEach(p => steps.push({ type: 'pick', val: p }));
         
         steps.splice(idx, 1);
         
         // Re-construct rule
-        delete r.requires;
+        r.requires = [];
         r.picks = [];
         steps.forEach(s => {
-            if (s.type === 'requires_burger') r.requires = 'burger_in_cart';
-            else r.picks.push(s.type.replace('pick_', ''));
+            if (s.type === 'must_have') r.requires.push(s.val);
+            else r.picks.push(s.val);
         });
         
-        if (!r.requires && r.picks.length === 0) delete currentConfig.deal_rules[dealId];
+        if (r.requires.length === 0) delete r.requires;
+        if (r.picks.length === 0) delete r.picks;
+        if (!r.requires && !r.picks) delete currentConfig.deal_rules[dealId];
+        
         isDirty = true;
         renderItems();
     }
 
-    function updateDealStep(dealId, idx, val) {
+    function updateDealStepValue(dealId, idx, val) {
         const r = currentConfig.deal_rules[dealId];
         let steps = [];
-        if (r.requires === 'burger_in_cart') steps.push({ type: 'requires_burger' });
-        (r.picks || []).forEach(p => steps.push({ type: 'pick_' + p }));
+        let requires = r.requires || [];
+        if (typeof requires === 'string') requires = [requires];
+        requires.forEach(req => steps.push({ type: 'must_have', val: req }));
+        (r.picks || []).forEach(p => steps.push({ type: 'pick', val: p }));
         
-        steps[idx].type = val;
+        steps[idx].val = val;
         
         // Re-construct rule
-        delete r.requires;
+        r.requires = [];
         r.picks = [];
         steps.forEach(s => {
-            if (s.type === 'requires_burger') r.requires = 'burger_in_cart';
-            else r.picks.push(s.type.replace('pick_', ''));
+            if (s.type === 'must_have') r.requires.push(s.val);
+            else r.picks.push(s.val);
         });
         isDirty = true;
     }

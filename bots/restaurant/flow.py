@@ -664,25 +664,39 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         deal_rules = get_deal_rules(bot)
         rule = deal_rules.get(item_id)
         
+        # ── Universal Requirement Engine ─────────────────────────────────────
+        deal_rules = get_deal_rules(bot)
+        rule = deal_rules.get(item_id)
+        
         if rule:
-            # Check pre-conditions (requires)
-            if rule.get("requires") == "burger_in_cart":
-                # Look for items starting with FF or having 'burger' in their name/id
-                has_burger = any(
-                    k.startswith("FF") or 
-                    "burger" in k.lower() or 
-                    "burger" in session["order"][k]["item"].get("name", "").lower()
+            # 1. Check Pre-conditions (Must-haves)
+            requires = rule.get("requires", [])
+            if isinstance(requires, str): requires = [requires]
+            if requires == "burger_in_cart": requires = ["burger"] # Migration support
+            
+            for req in requires:
+                # Look for keyword in item ID or Name
+                met = any(
+                    req.lower() in k.lower() or 
+                    req.lower() in session["order"][k]["item"].get("name", "").lower()
                     for k in session["order"]
                 )
-                if not has_burger:
-                    await send_text_message(sender, t(lang, "pick_burger_first"), bot=bot)
+                if not met:
+                    msg = f"To get this deal, please add {req.title()} to your cart first! 🛒"
+                    await send_text_message(sender, msg, bot=bot)
                     session["stage"] = "items"
-                    session["current_cat"] = "fastfood"
+                    # Try to find which category contains this requirement to help the user
+                    help_cat = "fastfood"
+                    if "pizza" in req.lower(): help_cat = "pizza"
+                    elif "wing" in req.lower() or "side" in req.lower(): help_cat = "sides"
+                    elif "drink" in req.lower() or "soda" in req.lower(): help_cat = "drinks"
+                    
+                    session["current_cat"] = help_cat
                     session["deal_context"] = {"deal_id": f"{item_id}_PENDING"}
-                    await send_category_items(sender, "fastfood", session["order"], lang, bot=bot, db_session=db_session)
+                    await send_category_items(sender, help_cat, session["order"], lang, bot=bot, db_session=db_session)
                     return
 
-            # Check picks (selection flow)
+            # 2. Check Selection Flow (Picks)
             if "picks" in rule:
                 session["stage"] = "deal_build"
                 session["deal_context"] = {"deal_id": item_id, "deal_item": found_item, "needs": list(rule.get("picks", [])), "picks": []}
