@@ -314,7 +314,8 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
         "phone_number_id", "waba_id", "verify_token", "manager_number",
         "ai_provider", "ai_api_key", "system_prompt", "webhook_url",
         "config_json", "tax_rate", "delivery_fee", "business_niche", "vapi_agent_id",
-        "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key" # Added sensitive keys
+        "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key",
+        "forwarding_url",
     }
 
     try:
@@ -342,7 +343,13 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
             db.commit()
             db.refresh(bot)
             log_audit(db, current_user.id, "UPDATE_BOT", f"Updated {bot.name} fields: {', '.join(changes)}")
-        
+            if "config_json" in changes and bot.bot_type == "restaurant":
+                try:
+                    from bots.restaurant.db import invalidate_menu_cache
+                    invalidate_menu_cache(bot.phone_number_id or None)
+                except Exception:
+                    pass
+
         return {"status": "updated", "id": bot.id, "changes": changes}
     except Exception as e:
         db.rollback()

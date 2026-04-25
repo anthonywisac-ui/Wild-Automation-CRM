@@ -34,6 +34,24 @@ from .ai_utils import get_ai_response
 from .stripe_utils import create_stripe_checkout_session
 from db import SessionLocal, WhatsappBot, Reservation, ChatHistory
 
+# ========== Upsell Config Helper ==========
+def get_upsell_config(bot):
+    """Read upsell_rules from bot config_json. Defaults all true if not set."""
+    defaults = {
+        "burger_combo": True,
+        "pizza_wings": True,
+        "desserts": True,
+    }
+    if not bot:
+        return defaults
+    try:
+        cfg = json.loads(bot.config_json or "{}")
+        rules = cfg.get("upsell_rules", {})
+        return {**defaults, **rules}
+    except Exception:
+        return defaults
+
+
 # ========== Constants for Deal Logic ==========
 DEAL_RULES = {
     "DL1": {"requires": "burger_in_cart"},
@@ -708,9 +726,11 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
 
         declined = session.get("upsell_declined_types", [])
         shown = session.get("upsell_shown_for", [])
+        upsell_cfg = get_upsell_config(bot)
 
         # Burger combo upsell
-        if (is_burger(item_id)
+        if (upsell_cfg.get("burger_combo")
+                and is_burger(item_id)
                 and "burger_combo" not in declined
                 and item_id not in shown
                 and not has_any_side(session["order"])
@@ -725,7 +745,8 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
                 return
 
         # Pizza wings upsell
-        if (is_pizza(item_id)
+        if (upsell_cfg.get("pizza_wings")
+                and is_pizza(item_id)
                 and "pizza_wings" not in declined
                 and item_id not in shown
                 and "SD4" not in session["order"]
@@ -825,7 +846,13 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
 
     if text == "CHECKOUT":
         if session["order"]:
-            if has_any_dessert(session["order"]) or "dessert" in session.get("upsell_declined_types", []):
+            upsell_cfg = get_upsell_config(bot)
+            skip_dessert = (
+                not upsell_cfg.get("desserts")
+                or has_any_dessert(session["order"])
+                or "dessert" in session.get("upsell_declined_types", [])
+            )
+            if skip_dessert:
                 session["stage"] = "confirm"
                 await send_order_summary(sender, session["order"], lang, bot=bot)
             else:
