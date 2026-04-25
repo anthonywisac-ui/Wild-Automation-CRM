@@ -714,6 +714,16 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         
         session["last_added"] = item_id
         session["stage"] = "qty_control"
+
+        # ── Pending Deal Completion ────────────────────────────────────────
+        # If we were waiting for an item to fulfill a deal, re-trigger the deal now
+        pending = session.get("deal_context", {}).get("deal_id", "")
+        if pending.endswith("_PENDING"):
+            orig_deal_id = pending.replace("_PENDING", "")
+            session["deal_context"] = {} # Clear it so we don't loop
+            # Re-run handle_flow for the original deal
+            return await handle_flow(sender, orig_deal_id, is_button=True, bot=bot, db_session=db_session)
+
         if item_id.startswith("DL"):
             await send_text_message(sender, t(lang, "deal_added"), bot=bot)
         
