@@ -863,6 +863,37 @@
             document.getElementById('upsellBurgerCombo').checked = ur.burger_combo !== false;
             document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
             document.getElementById('upsellDesserts').checked = ur.desserts !== false;
+
+            // Auto-populate deal_rules for restaurant bots if missing
+            if (bot.bot_type === 'restaurant' && !currentConfig.deal_rules) {
+                const cats = currentConfig.categories || [];
+                const ffCat = cats.find(c => (c.prefix||'').toUpperCase() === 'FF' || c.name.toLowerCase().includes('burger'));
+                const pzCat = cats.find(c => (c.prefix||'').toUpperCase() === 'PZ' || c.name.toLowerCase().includes('pizza'));
+                const ffKey = ffCat ? ffCat.id.replace('cat_', '') : 'fastfood';
+                const pzKey = pzCat ? pzCat.id.replace('cat_', '') : 'pizza';
+                const dealsCat = cats.find(c => (c.prefix||'').toUpperCase() === 'DL' || c.name.toLowerCase().includes('deal'));
+                if (dealsCat) {
+                    const items = dealsCat.items || [];
+                    const prefix = (dealsCat.prefix || 'DL').toUpperCase();
+                    const rules = {};
+                    const ruleTemplates = [
+                        { requires: ['burger_in_cart'] },
+                        { picks: [ffKey] },
+                        { picks: [pzKey] },
+                        { picks: [pzKey, pzKey] },
+                        { picks: ['2sides'] },
+                        { picks: [ffKey, ffKey, pzKey] }
+                    ];
+                    items.forEach((item, idx) => {
+                        const dealId = item.id || `${prefix}${idx + 1}`;
+                        if (ruleTemplates[idx]) rules[dealId] = ruleTemplates[idx];
+                    });
+                    if (Object.keys(rules).length > 0) {
+                        currentConfig.deal_rules = rules;
+                        isDirty = true;
+                    }
+                }
+            }
             
             activeCategoryId = null;
             renderCategories();
