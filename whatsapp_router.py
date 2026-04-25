@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
-from db import get_db, WhatsappBot, WebhookEvent, ChatHistory, Contact, SessionLocal, User
+from db import get_db, WhatsappBot, WebhookEvent, ChatHistory, Contact, SessionLocal, User, log_bot_event
 from ai_utils import get_ai_response
 
 router = APIRouter(tags=["WhatsApp Webhook"])
@@ -181,6 +181,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             role="user", content=user_msg
         ))
         db.commit()
+        log_bot_event(bot.id, "MSG_IN", user_msg[:200], customer_phone=sender)
 
         # ── 4. Route to correct handler ──────────────────────────────────────
         if bot.forwarding_url:
