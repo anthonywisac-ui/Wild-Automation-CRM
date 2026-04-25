@@ -57,12 +57,14 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
             if provider == "groq": api_key = owner.groq_api_key
             elif provider == "gemini": api_key = owner.gemini_api_key
             elif provider == "openai": api_key = owner.openai_api_key
-            
+            elif provider == "minimax": api_key = owner.minimax_api_key
+
     # Fallback to Global Env keys if still empty
     if not api_key:
         if provider == "groq": api_key = os.getenv("GROQ_API_KEY")
         elif provider == "gemini": api_key = os.getenv("GEMINI_API_KEY")
         elif provider == "openai": api_key = os.getenv("OPENAI_API_KEY")
+        elif provider == "minimax": api_key = os.getenv("MINIMAX_API_KEY")
 
     if not api_key:
         return "System configuration error: Missing API Key."
@@ -75,6 +77,9 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
             return await call_gemini_api(user_message, messages, api_key)
         elif provider == "openai":
             return await call_openai_api(messages, api_key)
+        elif provider == "minimax":
+            from ai.minimax_client import call_minimax_api
+            return await call_minimax_api(messages, api_key)
     except Exception as e:
         logger.error(f"AI Call failed ({provider}): {str(e)}")
         return "I'm having trouble processing that right now. Please try again in a moment."
