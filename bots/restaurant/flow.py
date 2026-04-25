@@ -86,7 +86,7 @@ ORDERING_STAGES = {
 async def prompt_deal_pick(sender, session, kind, lang="en", bot=None):
     ctx = session["deal_context"]
     deal_id = ctx["deal_id"]
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
 
     if kind == "burger":
         cat_key = "fastfood"
@@ -172,7 +172,7 @@ async def prompt_bbq_sides(sender, session, lang="en", bot=None):
 async def finalize_bbq_sides(sender, session, lang="en", bot=None):
     ctx = session["deal_context"]
     sides = ctx.get("sides", [])
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
 
     if ctx.get("deal_id") == "DL5":
         deal_item = MENU["deals"]["items"]["DL5"]
@@ -203,7 +203,7 @@ async def finalize_bbq_sides(sender, session, lang="en", bot=None):
         session["deal_context"] = None
         session["stage"] = "menu"
         await send_text_message(sender, "✅ Sides saved! Here's your menu.", bot=bot)
-        await send_main_menu(sender, session["order"], lang, bot=bot)
+        await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
 
 
 # ========== Order status helpers ==========
@@ -362,7 +362,7 @@ async def try_add_by_quantity(sender, session, text_lower, lang, bot=None):
         return False
     search_term = match.group(2).strip()
 
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
     item_id, found_item = None, None
     for cat in MENU.values():
         for iid, item in cat.get("items", {}).items():
@@ -388,18 +388,18 @@ async def try_add_by_quantity(sender, session, text_lower, lang, bot=None):
 
 
 # ========== Main flow handlers ==========
-async def handle_flow(sender, text, is_button=False, bot=None):
-    session = get_session(sender, bot)
+async def handle_flow(sender, text, is_button=False, bot=None, db_session=None):
+    session = get_session(sender, bot, db_session=db_session)
     try:
-        await _handle_flow_inner(sender, text, is_button, bot, session)
-        save_session_db(sender, bot.id if bot else None, session)
+        await _handle_flow_inner(sender, text, is_button, bot, session, db_session=db_session)
+        save_session_db(sender, bot.id if bot else None, session, db_session=db_session)
     except Exception as e:
         print(f"FLOW ERROR: {e}")
         traceback.print_exc()
         await send_text_message(sender, "Sorry, I encountered an error. Please type *menu* to restart.", bot=bot)
 
 
-async def _handle_flow_inner(sender, text, is_button, bot, session):
+async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=None):
     # Clear just_confirmed flag after 2 seconds
     if session.get("just_confirmed"):
         if time.time() - session.get("just_confirmed_at", 0) > 2:
@@ -479,18 +479,18 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
                 await send_repeat_order_confirm(sender, last_items, addr, lang, bot=bot)
             else:
                 session["stage"] = "menu"
-                MENU = get_bot_menu(bot.phone_number_id if bot else None)
-                await send_main_menu(sender, session["order"], lang, bot=bot)
+                MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+                await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         elif text in ["NEW_ORDER", "REPEAT_ADD_MORE"]:
             session["stage"] = "menu"
-            await send_main_menu(sender, session["order"], lang, bot=bot)
+            await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         elif text == "CHANGE_ADDRESS":
             session["stage"] = "address_update"
             await send_text_message(sender, "Sure! What's your new delivery address?", bot=bot)
         elif text == "REPEAT_CONFIRM":
             profile = get_profile_db(sender, bot.owner_id if bot else 1)
             history = profile.get("order_history", [])
-            MENU = get_bot_menu(bot.phone_number_id if bot else None)
+            MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
             if history:
                 last_items = history[-1].get("items", [])
                 session["order"] = {}
@@ -512,10 +512,10 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
                     await send_order_summary(sender, session["order"], lang, bot=bot)
                 else:
                     session["stage"] = "menu"
-                    await send_main_menu(sender, session["order"], lang, bot=bot)
+                    await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
             else:
                 session["stage"] = "menu"
-                await send_main_menu(sender, session["order"], lang, bot=bot)
+                await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
             return
         else:
             # Fallback for unhandled buttons (e.g. NEW_RESERVATION)
@@ -528,7 +528,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
         if text == "REPEAT_CONFIRM":
             profile = get_profile_db(sender, bot.owner_id if bot else 1)
             history = profile.get("order_history", [])
-            MENU = get_bot_menu(bot.phone_number_id if bot else None)
+            MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
             if history:
                 last_items = history[-1].get("items", [])
                 session["order"] = {}
@@ -550,13 +550,13 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
                 await send_order_summary(sender, session["order"], lang, bot=bot)
             else:
                 session["stage"] = "menu"
-                await send_main_menu(sender, session["order"], lang, bot=bot)
+                await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         elif text == "REPEAT_ADD_MORE":
             session["stage"] = "menu"
-            await send_main_menu(sender, session["order"], lang, bot=bot)
+            await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         else:
             session["stage"] = "menu"
-            await send_main_menu(sender, session["order"], lang, bot=bot)
+            await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         return
 
     # Address update stage
@@ -568,11 +568,11 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
         save_profile(sender, session, owner_id=bot.owner_id if bot else None)
         await send_text_message(sender, f"✅ Address updated! {text}", bot=bot)
         session["stage"] = "menu"
-        await send_main_menu(sender, session["order"], lang, bot=bot)
+        await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         return
 
     # Menu loading
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
 
     if stage == "lang_select":
         lang_map = {"LANG_EN": "en", "LANG_AR": "ar", "LANG_HI": "hi", "LANG_FR": "fr", "LANG_DE": "de", "LANG_RU": "ru", "LANG_ZH": "zh", "LANG_ML": "ml"}
@@ -581,14 +581,14 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
             lang = lang_map[text]
             session["stage"] = "menu"
             await send_text_message(sender, t(lang, "greeting_welcome"), bot=bot)
-            await send_main_menu(sender, session["order"], lang, bot=bot)
+            await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         else:
             await send_language_selection(sender, bot=bot)
         return
 
     if text in ["SHOW_MENU", "BACK_MENU", "ADD_MORE"]:
         session["stage"] = "menu"
-        await send_main_menu(sender, session["order"], lang, bot=bot)
+        await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         return
 
     if text == "BACK_TO_DELIVERY":
@@ -610,12 +610,12 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
     if text in CAT_MAP:
         session["stage"] = "items"
         session["current_cat"] = CAT_MAP[text]
-        await send_category_items(sender, CAT_MAP[text], session["order"], lang, bot=bot)
+        await send_category_items(sender, CAT_MAP[text], session["order"], lang, bot=bot, db_session=db_session)
         return
 
     # ADD_COMBO_DL1 must be checked BEFORE generic startswith("ADD_") or it gets eaten
     if text == "ADD_COMBO_DL1":
-        MENU = get_bot_menu(bot.phone_number_id if bot else None)
+        MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
         try:
             deal_item = MENU["deals"]["items"]["DL1"]
             if "DL1" in session["order"]:
@@ -654,7 +654,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
                 session["stage"] = "items"
                 session["current_cat"] = "fastfood"
                 session["deal_context"] = {"deal_id": "DL1_PENDING"}
-                await send_category_items(sender, "fastfood", session["order"], lang, bot=bot)
+                await send_category_items(sender, "fastfood", session["order"], lang, bot=bot, db_session=db_session)
                 return
             if "DL1" in session["order"]:
                 session["order"]["DL1"]["qty"] += 1
@@ -783,7 +783,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
         if last and last in session["order"]:
             await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
         else:
-            await send_main_menu(sender, session["order"], lang, bot=bot)
+            await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         return
 
     if stage == "deal_build" and text.startswith("DEAL_PICK_"):

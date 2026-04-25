@@ -58,7 +58,7 @@ async def send_language_selection(sender, bot=None):
     }
     await _send_request(payload, bot)
 
-async def send_main_menu(sender, current_order, lang, bot=None):
+async def send_main_menu(sender, current_order, lang, bot=None, db_session=None):
     total = get_order_total(current_order)
     cart_text = f"\n\n🛒 ${total:.2f}" if current_order else ""
     payload = {
@@ -91,9 +91,9 @@ async def send_main_menu(sender, current_order, lang, bot=None):
     }
     await _send_request(payload, bot)
 
-async def send_category_items(sender, cat_key, current_order, lang, bot=None):
+async def send_category_items(sender, cat_key, current_order, lang, bot=None, db_session=None):
     from .db import get_bot_menu
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
     cat = MENU.get(cat_key, {"name": cat_key.title(), "items": {}})
     total = get_order_total(current_order)
     cart_text = f"\n\n🛒 ${total:.2f}" if current_order else ""
@@ -194,9 +194,9 @@ async def send_quick_upsell(sender, item_id, message, lang, upsell_type="generic
     }
     await _send_request(payload, bot)
 
-async def send_dessert_upsell(sender, order, lang, bot=None):
+async def send_dessert_upsell(sender, order, lang, bot=None, db_session=None):
     from .db import get_bot_menu
-    MENU = get_bot_menu(bot.phone_number_id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
     total = get_order_total(order)
     ds = MENU.get("desserts", {"items": {}})["items"]
     dessert_line = " | ".join([f"{v.get('emoji','🍰')} {v['name']} ${v['price']:.2f}" for v in list(ds.values())[:3]])

@@ -220,7 +220,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             # ── RESTAURANT FLOW ENGINE ──────────────────────────────────────
             try:
                 from bots.restaurant.flow import handle_flow
-                await handle_flow(sender, user_msg, is_button=is_button, bot=bot)
+                await handle_flow(sender, user_msg, is_button=is_button, bot=bot, db_session=db)
 
                 db.add(ChatHistory(
                     user_id=bot.owner_id, customer_phone=sender,

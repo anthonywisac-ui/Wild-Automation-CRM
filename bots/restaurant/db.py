@@ -4,8 +4,8 @@ from datetime import datetime
 from db import SessionLocal, SessionState, Contact, WhatsappBot
 
 # Persistence wrappers for the restaurant engine
-def get_session_db(sender, bot_id):
-    db = SessionLocal()
+def get_session_db(sender, bot_id, db_session=None):
+    db = db_session or SessionLocal()
     try:
         session_record = db.query(SessionState).filter(
             SessionState.sender_number == sender,
@@ -15,10 +15,11 @@ def get_session_db(sender, bot_id):
             return json.loads(session_record.state_json)
         return None
     finally:
-        db.close()
+        if not db_session:
+            db.close()
 
-def save_session_db(sender, bot_id, state_dict):
-    db = SessionLocal()
+def save_session_db(sender, bot_id, state_dict, db_session=None):
+    db = db_session or SessionLocal()
     try:
         session_record = db.query(SessionState).filter(
             SessionState.sender_number == sender,
@@ -32,17 +33,19 @@ def save_session_db(sender, bot_id, state_dict):
         session_record.updated_at = datetime.utcnow()
         db.commit()
     finally:
-        db.close()
+        if not db_session:
+            db.close()
 
-def get_profile_db(sender, owner_id):
-    db = SessionLocal()
+def get_profile_db(sender, owner_id, db_session=None):
+    db = db_session or SessionLocal()
     try:
         contact = db.query(Contact).filter(Contact.phone == sender, Contact.owner_id == owner_id).first()
         if contact and contact.metadata_json:
             return json.loads(contact.metadata_json)
         return {"name": contact.first_name if contact else "", "address": "", "lang": "en", "order_history": []}
     finally:
-        db.close()
+        if not db_session:
+            db.close()
 
 def save_profile(sender, session, owner_id=None):
     if not owner_id: return
@@ -102,7 +105,7 @@ def get_favorite_items(sender, owner_id):
 _menu_cache = {}  # {phone_number_id: (menu_dict, expires_at)}
 _MENU_TTL = 60    # seconds
 
-def get_bot_menu(phone_number_id=None, bot_id=None):
+def get_bot_menu(phone_number_id=None, bot_id=None, db_session=None):
     """Fetch menu from DB config_json with 60s in-process cache."""
     cache_key = bot_id if bot_id is not None else phone_number_id
     now = time.time()
@@ -110,7 +113,7 @@ def get_bot_menu(phone_number_id=None, bot_id=None):
     if cached and now < cached[1]:
         return cached[0]
 
-    result = _fetch_bot_menu_from_db(phone_number_id=phone_number_id, bot_id=bot_id)
+    result = _fetch_bot_menu_from_db(phone_number_id=phone_number_id, bot_id=bot_id, db_session=db_session)
     _menu_cache[cache_key] = (result, now + _MENU_TTL)
     return result
 
@@ -122,16 +125,15 @@ def invalidate_menu_cache(phone_number_id=None, bot_id=None):
         _menu_cache.pop(phone_number_id, None)
     _menu_cache.pop(None, None)
 
-def _fetch_bot_menu_from_db(phone_number_id=None, bot_id=None):
+def _fetch_bot_menu_from_db(phone_number_id=None, bot_id=None, db_session=None):
     from .menu_data import MENU as DEFAULT_MENU
-    db = SessionLocal()
+    db = db_session or SessionLocal()
     try:
         bot = None
         if bot_id is not None:
             bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
         elif phone_number_id:
             bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == phone_number_id).first()
-        # no dangerous "first restaurant bot" fallback
 
         if bot and bot.config_json:
             try:
@@ -174,7 +176,8 @@ def _fetch_bot_menu_from_db(phone_number_id=None, bot_id=None):
         print(f"Menu Load Error: {e}")
         return DEFAULT_MENU
     finally:
-        db.close()
+        if not db_session:
+            db.close()
 
 # ========== Async wrappers for fire-and-forget background tasks ==========
 async def save_profile_async(sender, session, owner_id=None):
@@ -190,8 +193,8 @@ async def add_to_order_history_async(sender, order_id, order_items, owner_id):
         print(f"add_to_order_history_async error: {e}")
 
 # ========== Session management ==========
-def new_session(sender=None, bot=None):
-    profile = get_profile_db(sender, bot.owner_id) if sender and bot else {}
+def new_session(sender=None, bot=None, db_session=None):
+    profile = get_profile_db(sender, bot.owner_id, db_session=db_session) if sender and bot else {}
     is_returning = bool(profile.get("name"))
     return {
         "stage": "returning" if is_returning else "lang_select",
@@ -213,10 +216,10 @@ def new_session(sender=None, bot=None):
         "just_confirmed_at": 0,
     }
 
-def get_session(sender, bot=None):
-    session = get_session_db(sender, bot.id if bot else None)
+def get_session(sender, bot=None, db_session=None):
+    session = get_session_db(sender, bot.id if bot else None, db_session=db_session)
     if not session:
-        session = new_session(sender, bot)
+        session = new_session(sender, bot, db_session=db_session)
     return session
 
 # Legacy dicts kept as empty to prevent import errors during transition
