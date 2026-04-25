@@ -1,5 +1,5 @@
 {
-  "greeting_welcome": "Welcome to Wild Bites! 🍽️",
+  "greeting_welcome": "Welcome! 🍽️",
   "menu_header": "Our Menu",
   "craving": "What are you craving today?",
   "browse": "Browse Categories",
@@ -31,7 +31,7 @@
   "invalid_address": "Please enter a valid delivery address (including house/building number).",
   "order_confirmed": "Order Confirmed",
   "ready_in": "Estimated Time:",
-  "thank_you": "Thank you for choosing Wild Bites! ❤️",
+  "thank_you": "Thank you for your order! ❤️",
   "delivery_note_free": "FREE Delivery applied! 🚚",
   "delivery_note_will_add": "Delivery fee will be added at checkout.",
   "min_delivery": "Minimum order for delivery is $15.00. Please add more items!",

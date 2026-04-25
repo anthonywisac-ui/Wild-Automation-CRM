@@ -602,7 +602,8 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             session["lang"] = lang_map[text]
             lang = lang_map[text]
             session["stage"] = "menu"
-            await send_text_message(sender, t(lang, "greeting_welcome"), bot=bot)
+            _name = (bot.business_name or bot.name) if bot else "Restaurant"
+            await send_text_message(sender, f"Welcome to {_name}! 🍽️", bot=bot)
             await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         else:
             await send_language_selection(sender, bot=bot)
@@ -927,8 +928,14 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
 
     if text in ["DELIVERY", "PICKUP"]:
         total = get_order_total(session["order"])
+        try:
+            _rules = json.loads(bot.config_json or "{}").get("rules", {}) if bot else {}
+            _min_delivery = _rules.get("min_order", MIN_DELIVERY_ORDER)
+            _min_pickup = _rules.get("min_pickup", MIN_PICKUP_ORDER)
+        except Exception:
+            _min_delivery, _min_pickup = MIN_DELIVERY_ORDER, MIN_PICKUP_ORDER
         if text == "DELIVERY":
-            if total < MIN_DELIVERY_ORDER:
+            if total < _min_delivery:
                 await send_min_order_warning(sender, "delivery", lang, bot=bot)
                 return
             session["delivery_type"] = "delivery"
@@ -940,7 +947,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 session["stage"] = "address"
                 await send_text_message(sender, t(lang, "address_ask"), bot=bot)
         else:
-            if total < MIN_PICKUP_ORDER:
+            if total < _min_pickup:
                 await send_min_order_warning(sender, "pickup", lang, bot=bot)
                 return
             session["delivery_type"] = "pickup"
@@ -1018,7 +1025,8 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_language_selection(sender, bot=bot)
         else:
             session["stage"] = "menu"
-            await send_text_message(sender, t(lang, "greeting_welcome"), bot=bot)
+            _name = (bot.business_name or bot.name) if bot else "Restaurant"
+            await send_text_message(sender, f"Welcome to {_name}! 🍽️", bot=bot)
             await send_main_menu(sender, session["order"], lang, bot=bot)
         return
 

@@ -254,8 +254,8 @@ BOTS.append({
 
 # ── 5. Dubai / DXB ────────────────────────────────────────────────────────────
 BOTS.append({
-    "name": "operation-shawarma",
-    "business_name": "Operation Shawarma - Dubai",
+    "name": "dubai-cafe",
+    "business_name": "Dubai Cafe",
     "bot_type": "restaurant",
     "tax_rate": 0.05,
     "delivery_fee": 0.0,
