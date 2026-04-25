@@ -686,7 +686,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                     elif req.lower() in item_name: met = True
                     # 3. Category match (Check if this item belongs to a category matching the requirement)
                     else:
-                        for cat_key, cat_data in bot_menu.items():
+                        for cat_key, cat_data in MENU.items():
                             if k in cat_data.get("items", {}):
                                 if req.lower() in cat_key.lower() or req.lower() in cat_data.get("name", "").lower():
                                     met = True
@@ -728,14 +728,13 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
 
         # ── Pending Deal Completion ────────────────────────────────────────
         # If we were waiting for an item to fulfill a deal, re-trigger the deal now
-        pending = session.get("deal_context", {}).get("deal_id", "")
+        pending = (session.get("deal_context") or {}).get("deal_id", "")
         if pending.endswith("_PENDING"):
             orig_deal_id = pending.replace("_PENDING", "")
-            # IMPORTANT: Clear context before re-triggering to prevent loops
-            session["deal_context"] = {} 
-            # Re-run handle_flow for the original deal
-            await handle_flow(sender, f"ADD_{orig_deal_id}", is_button=True, bot=bot, db_session=db_session)
-            return # Stop here, handle_flow will take over the response
+            session["deal_context"] = {}
+            # Call inner directly — avoids DB re-read that would return stale session
+            await _handle_flow_inner(sender, f"ADD_{orig_deal_id}", True, bot, session, db_session=db_session)
+            return
 
         if item_id.startswith("DL"):
             await send_text_message(sender, t(lang, "deal_added"), bot=bot)
