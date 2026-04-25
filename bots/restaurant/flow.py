@@ -461,7 +461,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         return
 
     # Quantity shortcut (e.g. "4 FF1" or "3 Classic Burger")
-    if not is_button and stage not in {"get_name", "address", "payment"}:
+    if not is_button and stage not in {"get_name", "address", "payment", "deal_build", "bbq_sides"}:
         if await try_add_by_quantity(sender, session, text_lower, lang, bot=bot):
             return
 
@@ -776,18 +776,6 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
         return
 
-    # upsell_combo: only SKIP_UPSELL handled here; ADD_COMBO_DL1 handled above
-    # Any unrecognised text while in upsell_combo routes to qty_control, not silent drop
-    if stage == "upsell_combo":
-        session.pop("_pending_upsell_type", None)
-        session["stage"] = "qty_control"
-        last = session.get("last_added")
-        if last and last in session["order"]:
-            await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
-        else:
-            await send_cart_view(sender, session["order"], lang, bot=bot)
-        return
-
     if text == "SKIP_UPSELL":
         ctx_type = session.get("_pending_upsell_type", "generic")
         if ctx_type not in session.get("upsell_declined_types", []):
@@ -799,6 +787,18 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
         else:
             await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
+        return
+
+    # upsell_combo: ADD_COMBO_DL1 handled above, SKIP_UPSELL handled above
+    # Any other text while in upsell_combo → dismiss and proceed
+    if stage == "upsell_combo":
+        session.pop("_pending_upsell_type", None)
+        session["stage"] = "qty_control"
+        last = session.get("last_added")
+        if last and last in session["order"]:
+            await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
+        else:
+            await send_cart_view(sender, session["order"], lang, bot=bot)
         return
 
     if stage == "deal_build" and text.startswith("DEAL_PICK_"):
