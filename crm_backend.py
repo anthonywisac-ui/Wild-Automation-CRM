@@ -348,7 +348,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
             if "config_json" in changes and bot.bot_type == "restaurant":
                 try:
                     from bots.restaurant.db import invalidate_menu_cache
-                    invalidate_menu_cache(bot.phone_number_id or None)
+                    invalidate_menu_cache(phone_number_id=bot.phone_number_id, bot_id=bot.id)
                 except Exception:
                     pass
 
@@ -410,7 +410,7 @@ def get_effective_menu(bot_id: int, current_user: User = Depends(get_current_use
         raise HTTPException(404, "Bot not found")
     try:
         from bots.restaurant.db import get_bot_menu
-        menu = get_bot_menu(bot.phone_number_id or None)
+        menu = get_bot_menu(phone_number_id=bot.phone_number_id or None, bot_id=bot.id)
         categories = []
         for cat_key, cat_data in menu.items():
             items_dict = cat_data.get("items", {})

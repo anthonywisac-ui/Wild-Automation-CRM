@@ -82,6 +82,10 @@
                 <button onclick="showTab('webhook')" data-tab="webhook" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-plug w-5"></i> Webhook Live</button>
                 <button onclick="showTab('settings')" data-tab="settings" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-cog w-5"></i> Settings</button>
                 
+                <div id="nonAdminBuilderSection" class="hidden pt-4 mt-2 border-t border-gray-700">
+                    <div class="text-xs text-gray-400 px-3 mb-2">BOT BUILDER</div>
+                    <button onclick="showTab('builder')" data-tab="builder" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-magic w-5"></i> Bot Builder</button>
+                </div>
                 <div id="adminBotSection" class="hidden pt-4 mt-2 border-t border-gray-700">
                     <div class="text-xs text-gray-400 px-3 mb-2">BOT MANAGEMENT</div>
                     <button onclick="showTab('bot_create')" data-tab="bot_create" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-plus-circle w-5"></i> Create Bot</button>
@@ -601,6 +605,14 @@
     let currentConfig = { categories: [], rules: { tax: 8, delivery: 5, min_order: 20 } };
     let activeCategoryId = null;
     let _loggingOut = false;
+    let currentBotType = null;
+    let currentBotId = null;
+    let isDirty = false;
+    let currentTab = null;
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
 
     async function apiCall(endpoint, method, body = null) {
         const headers = { 'Content-Type': 'application/json' };
@@ -640,6 +652,7 @@
         document.getElementById('sidebarUser').innerText = user.username;
         document.getElementById('userRoleBadge').innerHTML = `<span class="bg-${currentUserRole === 'admin' ? 'purple' : 'gray'}-600 px-2 py-0.5 rounded text-[10px] uppercase">${currentUserRole}</span>`;
         if (currentUserRole === 'admin') document.getElementById('adminBotSection').classList.remove('hidden');
+        else document.getElementById('nonAdminBuilderSection').classList.remove('hidden');
         document.getElementById('authContainer').classList.add('hidden');
         document.getElementById('dashboardContainer').classList.remove('hidden');
         showTab('dashboard');
@@ -802,12 +815,20 @@
     }
 
     async function loadBotBuilder(id) {
+        if (isDirty && !confirm('Unsaved changes will be lost. Continue?')) {
+            const select = document.getElementById('builderBotSelect');
+            if (select) select.value = currentBotId || '';
+            return;
+        }
         if (!id) { document.getElementById('builderWorkspace').classList.add('opacity-30', 'pointer-events-none'); return; }
         document.getElementById('builderWorkspace').classList.remove('opacity-30', 'pointer-events-none');
         try {
             const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
             const bot = bots.find(b => b.id == id);
             if (!bot) { console.error('Bot not found:', id); return; }
+            currentBotType = bot.bot_type;
+            currentBotId = id;
+            isDirty = false;
             currentConfig = JSON.parse(bot.config_json || '{}');
             if (!currentConfig.categories) currentConfig.categories = [];
             if (!currentConfig.rules) currentConfig.rules = { tax: 8, delivery: 5, min_order: 20 };
@@ -920,7 +941,7 @@
             <div class="card-premium p-5 group hover:border-emerald-500/50 transition-all animate-slide-in relative flex flex-col h-full">
                 <div class="flex justify-between items-start mb-4">
                     <div class="relative group/emoji">
-                        <input type="text" value="${item.emoji || '🍕'}" onchange="updateItem(${idx}, 'emoji', this.value)" class="bg-slate-900 w-10 h-10 rounded-lg text-xl flex items-center justify-center border border-slate-700 outline-none focus:border-emerald-500 text-center cursor-pointer">
+                        <input type="text" value="${escHtml(item.emoji || '🍕')}" oninput="updateItem(${idx}, 'emoji', this.value)" class="bg-slate-900 w-10 h-10 rounded-lg text-xl flex items-center justify-center border border-slate-700 outline-none focus:border-emerald-500 text-center cursor-pointer">
                         <div class="absolute -top-8 left-0 bg-slate-800 text-[9px] px-2 py-1 rounded opacity-0 group-hover/emoji:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">Change Emoji</div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -928,21 +949,21 @@
                         <button onclick="deleteItem(${idx})" class="text-slate-600 hover:text-rose-500 transition-colors p-1"><i class="fas fa-trash-alt text-xs"></i></button>
                     </div>
                 </div>
-                
+
                 <div class="space-y-3 flex-grow">
                     <div class="group">
                         <label class="block text-[9px] font-bold text-slate-500 uppercase mb-1">Product Name</label>
-                        <input type="text" value="${item.name}" onchange="updateItem(${idx}, 'name', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-sm p-2 text-white outline-none focus:border-emerald-500 transition-all" placeholder="e.g. Classic Burger">
+                        <input type="text" value="${escHtml(item.name)}" oninput="updateItem(${idx}, 'name', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-sm p-2 text-white outline-none focus:border-emerald-500 transition-all" placeholder="e.g. Classic Burger">
                     </div>
-                    
+
                     <div class="group">
                         <label class="block text-[9px] font-bold text-slate-500 uppercase mb-1">Price ($)</label>
-                        <input type="number" step="0.01" value="${item.price}" onchange="updateItem(${idx}, 'price', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-sm p-2 text-emerald-400 font-bold outline-none focus:border-emerald-500 transition-all">
+                        <input type="number" step="0.01" value="${escHtml(item.price)}" oninput="updateItem(${idx}, 'price', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-sm p-2 text-emerald-400 font-bold outline-none focus:border-emerald-500 transition-all">
                     </div>
 
                     <div class="group">
                         <label class="block text-[9px] font-bold text-slate-500 uppercase mb-1">Description</label>
-                        <textarea onchange="updateItem(${idx}, 'desc', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-xs p-2 text-slate-400 h-16 outline-none focus:border-emerald-500 transition-all resize-none" placeholder="What makes this item special?">${item.desc || ''}</textarea>
+                        <textarea oninput="updateItem(${idx}, 'desc', this.value)" class="bg-slate-900/50 border border-slate-800 rounded-lg w-full text-xs p-2 text-slate-400 h-16 outline-none focus:border-emerald-500 transition-all resize-none" placeholder="What makes this item special?">${escHtml(item.desc || '')}</textarea>
                     </div>
                 </div>
 
@@ -951,7 +972,7 @@
                         <label class="block text-[9px] font-bold text-slate-500 uppercase">Add-ons & Extras</label>
                         <i class="fas fa-info-circle text-[10px] text-slate-600 cursor-help" title="Format: Name:+Price (e.g. Cheese:+1.5)"></i>
                     </div>
-                    <input type="text" value="${item.addons || ''}" onchange="updateItem(${idx}, 'addons', this.value)" class="bg-slate-900/30 border border-slate-700 rounded-lg w-full text-[10px] p-2 text-slate-300 focus:border-emerald-500 outline-none transition-all" placeholder="Cheese:+1.5, Bacon:+2.0">
+                    <input type="text" value="${escHtml(item.addons || '')}" oninput="updateItem(${idx}, 'addons', this.value)" class="bg-slate-900/30 border border-slate-700 rounded-lg w-full text-[10px] p-2 text-slate-300 focus:border-emerald-500 outline-none transition-all" placeholder="Cheese:+1.5, Bacon:+2.0">
                 </div>
             </div>`).join('');
     }
@@ -960,8 +981,11 @@
         const name = prompt('Enter name for the new section (e.g. Desserts):');
         if (!name) return;
         if (!currentConfig.categories) currentConfig.categories = [];
-        currentConfig.categories.push({ id: 'cat_' + Date.now(), name, items: [] });
+        const newCat = { id: 'cat_' + Date.now(), name, items: [] };
+        currentConfig.categories.push(newCat);
+        isDirty = true;
         renderCategories();
+        selectCategory(newCat.id);
     }
 
     function editCategoryName() {
@@ -990,21 +1014,24 @@
         if (!cat.items) cat.items = [];
         const uid = 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
         cat.items.push({ id: uid, name: '', price: 0, desc: '', emoji: '📦', addons: '' });
+        isDirty = true;
         renderItems();
     }
 
-    function updateItem(idx, field, value) { 
+    function updateItem(idx, field, value) {
         const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
         if (cat && cat.items[idx]) {
             cat.items[idx][field] = (field === 'price') ? parseFloat(value) : value;
+            isDirty = true;
         }
     }
 
-    function deleteItem(idx) { 
+    function deleteItem(idx) {
         const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
         if (cat) {
             cat.items.splice(idx, 1);
-            renderItems(); 
+            isDirty = true;
+            renderItems();
         }
     }
 
@@ -1012,9 +1039,6 @@
         const botId = document.getElementById('builderBotSelect').value;
         if (!botId) { alert('Please select a bot first.'); return; }
         
-        const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
-        const bot = bots.find(b => b.id == botId);
-
         const btn = document.getElementById('btnSaveConfig');
         const span = btn.querySelector('span');
         const originalText = span.innerText;
@@ -1026,7 +1050,7 @@
         const delivery_fee = parseFloat(document.getElementById('ruleDelivery').value || 0);
         const system_prompt = document.getElementById('botSystemPrompt').value;
 
-        if (bot.bot_type !== 'restaurant') {
+        if (currentBotType !== 'restaurant') {
             try {
                 currentConfig = JSON.parse(document.getElementById('nicheConfigJson').value);
             } catch(e) {
@@ -1065,8 +1089,9 @@
                 delivery_fee: delivery_fee,
                 system_prompt: system_prompt
             });
+            isDirty = false;
             alert('🚀 Changes Synced! Your bot is now using the updated menu and logic.');
-        } catch(e) { 
+        } catch(e) {
             alert('Error saving config: ' + e.message); 
         } finally { 
             span.innerText = originalText; 
@@ -1078,6 +1103,9 @@
     function copyText(id) { navigator.clipboard.writeText(document.getElementById(id).innerText); alert('Copied!'); }
 
     function showTab(tabName) {
+        if (isDirty && currentTab === 'builder' && tabName !== 'builder' && !confirm('Unsaved changes will be lost. Continue?')) return;
+        if (tabName !== 'builder') isDirty = false;
+        currentTab = tabName;
         document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
         document.getElementById('tab-' + tabName)?.classList.remove('hidden');
         document.querySelectorAll('.sidebar-btn').forEach(btn => {

@@ -102,31 +102,36 @@ def get_favorite_items(sender, owner_id):
 _menu_cache = {}  # {phone_number_id: (menu_dict, expires_at)}
 _MENU_TTL = 60    # seconds
 
-def get_bot_menu(phone_number_id=None):
+def get_bot_menu(phone_number_id=None, bot_id=None):
     """Fetch menu from DB config_json with 60s in-process cache."""
+    cache_key = bot_id if bot_id is not None else phone_number_id
     now = time.time()
-    cached = _menu_cache.get(phone_number_id)
+    cached = _menu_cache.get(cache_key)
     if cached and now < cached[1]:
         return cached[0]
 
-    result = _fetch_bot_menu_from_db(phone_number_id)
-    _menu_cache[phone_number_id] = (result, now + _MENU_TTL)
+    result = _fetch_bot_menu_from_db(phone_number_id=phone_number_id, bot_id=bot_id)
+    _menu_cache[cache_key] = (result, now + _MENU_TTL)
     return result
 
-def invalidate_menu_cache(phone_number_id=None):
+def invalidate_menu_cache(phone_number_id=None, bot_id=None):
     """Call after menu CMS update to force fresh load."""
-    _menu_cache.pop(phone_number_id, None)
+    if bot_id is not None:
+        _menu_cache.pop(bot_id, None)
+    if phone_number_id is not None:
+        _menu_cache.pop(phone_number_id, None)
     _menu_cache.pop(None, None)
 
-def _fetch_bot_menu_from_db(phone_number_id=None):
+def _fetch_bot_menu_from_db(phone_number_id=None, bot_id=None):
     from .menu_data import MENU as DEFAULT_MENU
     db = SessionLocal()
     try:
         bot = None
-        if phone_number_id:
+        if bot_id is not None:
+            bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
+        elif phone_number_id:
             bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == phone_number_id).first()
-        if not bot:
-            bot = db.query(WhatsappBot).filter(WhatsappBot.bot_type == "restaurant").first()
+        # no dangerous "first restaurant bot" fallback
 
         if bot and bot.config_json:
             try:
