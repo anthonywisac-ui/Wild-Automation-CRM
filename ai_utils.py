@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 from db import WhatsappBot, ChatHistory
+from session import SharedSession
 
 logger = logging.getLogger(__name__)
 
@@ -80,31 +81,38 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
 
 async def call_groq_api(messages, api_key):
     url = "https://api.groq.com/openai/v1/chat/completions"
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": "llama-3.1-8b-instant", "messages": messages}
-        ) as res:
-            data = await res.json()
-            return data["choices"][0]["message"]["content"]
+    session = await SharedSession.get_session()
+    async with session.post(
+        url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={"model": "llama-3.1-8b-instant", "messages": messages}
+    ) as res:
+        data = await res.json()
+        return data["choices"][0]["message"]["content"]
 
 async def call_gemini_api(user_message, messages, api_key):
-    import google.generativeai as genai
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash-latest")
-    # For simplicity, passing full prompt to Gemini Flash
-    full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
-    response = model.generate_content(full_prompt)
-    return response.text
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # Convert messages to Gemini format
+    contents = []
+    for m in messages:
+        role = "user" if m["role"] == "user" else "model"
+        contents.append({"role": role, "parts": [{"text": m["content"]}]})
+    
+    payload = {"contents": contents}
+    session = await SharedSession.get_session()
+    async with session.post(url, json=payload) as res:
+        data = await res.json()
+        if "candidates" in data:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        return "I'm sorry, I couldn't generate a response."
 
 async def call_openai_api(messages, api_key):
     url = "https://api.openai.com/v1/chat/completions"
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": "gpt-3.5-turbo", "messages": messages}
-        ) as res:
-            data = await res.json()
-            return data["choices"][0]["message"]["content"]
+    session = await SharedSession.get_session()
+    async with session.post(
+        url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={"model": "gpt-3.5-turbo", "messages": messages}
+    ) as res:
+        data = await res.json()
+        return data["choices"][0]["message"]["content"]

@@ -2,12 +2,14 @@ import os
 import json
 import logging
 import time
+import asyncio
 from datetime import datetime
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 from db import get_db, WhatsappBot, WebhookEvent, ChatHistory, Contact, SessionLocal, User, log_bot_event
 from ai_utils import get_ai_response
+from session import SharedSession
 
 router = APIRouter(tags=["WhatsApp Webhook"])
 logger = logging.getLogger(__name__)
@@ -39,10 +41,9 @@ async def trigger_vapi_outbound_call(sender_phone: str, bot: WhatsappBot, db: Se
         "phoneNumberId": agent_record.phone_number_id if agent_record else None
     }
 
-    import aiohttp
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=payload, headers=headers) as resp:
-            return resp.status == 201
+    session = await SharedSession.get_session()
+    async with session.post(url, json=payload, headers=headers) as resp:
+        return resp.status == 201
 
 # ========== Simple Rate Limiter (per sender) ==========
 _rate_limit: dict = {}  # {sender: [timestamps]}
@@ -78,7 +79,7 @@ async def verify_webhook(request: Request):
 
 # ========== Main Webhook Handler ==========
 @router.post("/webhook")
-async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
+async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     data = await request.json()
 
     try:
@@ -99,10 +100,18 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             logger.warning(f"No bot found for phone_number_id: {phone_number_id}")
             return {"status": "ok"}
 
-        # ── 2. Log webhook event ─────────────────────────────────────────────
-        new_event = WebhookEvent(user_id=bot.owner_id, type="whatsapp")
-        new_event.payload = data
-        db.add(new_event)
+        # ── 2. Background Logging ─────────────────────────────────────────────
+        def log_webhook_async(owner_id, payload):
+            db_local = SessionLocal()
+            try:
+                new_event = WebhookEvent(user_id=owner_id, type="whatsapp")
+                new_event.payload_json = json.dumps(payload)
+                db_local.add(new_event)
+                db_local.commit()
+            finally:
+                db_local.close()
+
+        background_tasks.add_task(log_webhook_async, bot.owner_id, data)
 
         # ── 3. Process Messages ──────────────────────────────────────────────
         if "messages" not in value:
@@ -175,13 +184,20 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             db.add(contact)
             db.commit()
 
-        # ── Log incoming message ─────────────────────────────────────────────
-        db.add(ChatHistory(
-            user_id=bot.owner_id, customer_phone=sender,
-            role="user", content=user_msg
-        ))
-        db.commit()
-        log_bot_event(bot.id, "MSG_IN", user_msg[:200], customer_phone=sender)
+        # ── 3. Background Chat Logging ─────────────────────────────────────────────
+        def log_chat_async(owner_id, phone, msg, bot_id):
+            db_local = SessionLocal()
+            try:
+                db_local.add(ChatHistory(
+                    user_id=owner_id, customer_phone=phone,
+                    role="user", content=msg
+                ))
+                db_local.commit()
+                log_bot_event(bot_id, "MSG_IN", msg[:200], customer_phone=phone)
+            finally:
+                db_local.close()
+
+        background_tasks.add_task(log_chat_async, bot.owner_id, sender, user_msg, bot.id)
 
         # ── 4. Route to correct handler ──────────────────────────────────────
         if bot.forwarding_url:
