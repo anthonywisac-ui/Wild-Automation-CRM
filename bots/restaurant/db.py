@@ -139,8 +139,27 @@ def _fetch_bot_menu_from_db(phone_number_id=None, bot_id=None):
                 if "categories" in config and config["categories"]:
                     dynamic_menu = DEFAULT_MENU.copy()
                     for cat in config["categories"]:
-                        cat_id = cat.get("prefix", "").lower() or cat.get("id", "").replace("cat_", "").lower()
-                        if not cat_id: continue
+                        # Priority mapping for hardcoded flow keys
+                        raw_id = cat.get("id", "").replace("cat_", "").lower()
+                        prefix = cat.get("prefix", "").lower()
+                        
+                        # Mapping table for CRM vs Flow keys
+                        mapping = {
+                            "burgers": "fastfood",
+                            "burger": "fastfood",
+                            "hot_deals": "deals",
+                            "deal": "deals",
+                        }
+                        
+                        cat_id = mapping.get(raw_id, raw_id)
+                        # If prefix is set and not a standard one, it might be used as the key, 
+                        # but we prioritize mapping to flow-compatible keys.
+                        if cat_id not in ["deals", "fastfood", "pizza", "bbq", "fish", "sides", "drinks", "desserts"]:
+                            if prefix in ["dl", "ff", "pz", "bb", "fs", "sd", "dr", "ds"]:
+                                # Standard prefix map
+                                prefix_map = {"dl": "deals", "ff": "fastfood", "pz": "pizza", "bb": "bbq", "fs": "fish", "sd": "sides", "dr": "drinks", "ds": "desserts"}
+                                cat_id = prefix_map.get(prefix, cat_id)
+
                         items = {item["id"]: item for item in cat.get("items", [])}
                         if items:
                             dynamic_menu[cat_id] = {
