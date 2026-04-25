@@ -354,13 +354,6 @@
                                         </label>
                                     </div>
                                 </div>
-                                <div id="dealLogicSection" class="pt-4 mt-4 border-t border-slate-700 hidden">
-                                    <div class="text-[10px] font-bold text-slate-500 uppercase mb-2">Deal Requirements</div>
-                                    <p class="text-[9px] text-slate-500 mb-3">Define what a user must choose to avail each deal.</p>
-                                    <div id="dealRulesList" class="space-y-3">
-                                        <!-- Dynamic deal rules will be rendered here -->
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -871,7 +864,6 @@
             document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
             document.getElementById('upsellDesserts').checked = ur.desserts !== false;
             
-            renderDealRulesUI();
             activeCategoryId = null;
             renderCategories();
             document.getElementById('noCategorySelected').classList.remove('hidden');
@@ -889,65 +881,6 @@
             const el = document.getElementById('nicheConfigJson');
             el.value = JSON.stringify(JSON.parse(el.value), null, 2);
         } catch(e) { alert('Invalid JSON: ' + e.message); }
-    }
-
-    function renderDealRulesUI() {
-        const section = document.getElementById('dealLogicSection');
-        const list = document.getElementById('dealRulesList');
-        if (currentBotType !== 'restaurant') { section.classList.add('hidden'); return; }
-        
-        section.classList.remove('hidden');
-        const deals = [];
-        (currentConfig.categories || []).forEach(cat => {
-            if (cat.type === 'deal') {
-                (cat.items || []).forEach((item, idx) => {
-                    const prefix = (cat.prefix || 'DL').toUpperCase();
-                    deals.push({ id: `${prefix}${idx+1}`, name: item.name || `Deal ${idx+1}` });
-                });
-            }
-        });
-
-        if (deals.length === 0) {
-            list.innerHTML = '<div class="text-[10px] text-slate-600 italic">Add items to a "Deal" section first.</div>';
-            return;
-        }
-
-        const rules = currentConfig.deal_rules || {};
-        list.innerHTML = deals.map(d => {
-            const current = rules[d.id] ? (rules[d.id].picks ? rules[d.id].picks[0] : 'requires_burger') : 'none';
-            // Simple mapping for UI
-            let val = 'none';
-            if (rules[d.id]) {
-                if (rules[d.id].requires === 'burger_in_cart') val = 'requires_burger';
-                else if (rules[d.id].picks && rules[d.id].picks[0] === 'burger') val = 'pick_burger';
-                else if (rules[d.id].picks && rules[d.id].picks[0] === 'pizza') val = 'pick_pizza';
-            }
-
-            return `
-            <div class="bg-slate-900/40 p-2 rounded-lg border border-slate-800">
-                <div class="text-[10px] font-bold text-slate-300 truncate mb-1">${d.id}: ${d.name}</div>
-                <select onchange="updateDealRule('${d.id}', this.value)" class="w-full bg-slate-800 border-none text-[10px] text-emerald-400 p-1 rounded outline-none cursor-pointer">
-                    <option value="none" ${val==='none'?'selected':''}>No Requirement</option>
-                    <option value="requires_burger" ${val==='requires_burger'?'selected':''}>Must have Burger in Cart</option>
-                    <option value="pick_burger" ${val==='pick_burger'?'selected':''}>Pick a Burger first</option>
-                    <option value="pick_pizza" ${val==='pick_pizza'?'selected':''}>Pick a Pizza first</option>
-                </select>
-            </div>`;
-        }).join('');
-    }
-
-    function updateDealRule(dealId, type) {
-        if (!currentConfig.deal_rules) currentConfig.deal_rules = {};
-        if (type === 'none') {
-            delete currentConfig.deal_rules[dealId];
-        } else if (type === 'requires_burger') {
-            currentConfig.deal_rules[dealId] = { requires: 'burger_in_cart' };
-        } else if (type === 'pick_burger') {
-            currentConfig.deal_rules[dealId] = { picks: ['burger'] };
-        } else if (type === 'pick_pizza') {
-            currentConfig.deal_rules[dealId] = { picks: ['pizza'] };
-        }
-        isDirty = true;
     }
 
     function renderCategories() {
@@ -1043,6 +976,20 @@
                     </div>
                     <input type="text" value="${escHtml(item.addons || '')}" oninput="updateItem(${idx}, 'addons', this.value)" class="bg-slate-900/30 border border-slate-700 rounded-lg w-full text-[10px] p-2 text-slate-300 focus:border-emerald-500 outline-none transition-all" placeholder="Cheese:+1.5, Bacon:+2.0">
                 </div>
+
+                ${cat.type === 'deal' ? `
+                <div class="mt-3 pt-3 border-t border-emerald-500/20 bg-emerald-500/5 -mx-5 -mb-5 p-5 rounded-b-xl">
+                    <label class="block text-[9px] font-bold text-emerald-400 uppercase mb-2">Deal Requirement</label>
+                    <select onchange="updateItemDealRule('${(cat.prefix||'DL')}${idx+1}', this.value)" class="w-full bg-slate-950 border border-emerald-500/30 text-[10px] text-emerald-400 p-2 rounded-lg outline-none focus:border-emerald-500 cursor-pointer">
+                        <option value="none">🎁 Instant Add (No Choice)</option>
+                        <option value="requires_burger" ${getDealRuleType((cat.prefix||'DL')+(idx+1)) === 'requires_burger' ? 'selected' : ''}>🍔 Must have Burger in Cart</option>
+                        ${currentConfig.categories.filter(c => c.type !== 'deal').map(c => `
+                            <option value="pick_${c.id.replace('cat_','')}" ${getDealRuleType((cat.prefix||'DL')+(idx+1)) === 'pick_'+c.id.replace('cat_','') ? 'selected' : ''}>✨ Pick from: ${c.name}</option>
+                        `).join('')}
+                    </select>
+                    <p class="text-[8px] text-slate-500 mt-2 italic">User will be prompted to choose an item from the selected section.</p>
+                </div>
+                ` : ''}
             </div>`).join('');
     }
 
@@ -1075,7 +1022,6 @@
         document.getElementById('categoryHeader').classList.add('hidden');
         document.getElementById('noCategorySelected').classList.remove('hidden');
         renderCategories();
-        renderDealRulesUI();
     }
 
     function addItem() {
@@ -1086,7 +1032,6 @@
         cat.items.push({ id: uid, name: '', price: 0, desc: '', emoji: '📦', addons: '' });
         isDirty = true;
         renderItems();
-        if (cat.type === 'deal') renderDealRulesUI();
     }
 
     function updateItem(idx, field, value) {
@@ -1097,13 +1042,35 @@
         }
     }
 
+    function getDealRuleType(dealId) {
+        const rules = currentConfig.deal_rules || {};
+        const r = rules[dealId];
+        if (!r) return 'none';
+        if (r.requires === 'burger_in_cart') return 'requires_burger';
+        if (r.picks && r.picks[0]) return 'pick_' + r.picks[0];
+        return 'none';
+    }
+
+    function updateItemDealRule(dealId, type) {
+        if (!currentConfig.deal_rules) currentConfig.deal_rules = {};
+        if (type === 'none') {
+            delete currentConfig.deal_rules[dealId];
+        } else if (type === 'requires_burger') {
+            currentConfig.deal_rules[dealId] = { requires: 'burger_in_cart' };
+        } else if (type.startsWith('pick_')) {
+            const catId = type.replace('pick_', '');
+            currentConfig.deal_rules[dealId] = { picks: [catId] };
+        }
+        isDirty = true;
+        // No need to re-render everything, but could refresh the UI if needed
+    }
+
     function deleteItem(idx) {
         const cat = currentConfig.categories.find(c => c.id === activeCategoryId);
         if (cat) {
             cat.items.splice(idx, 1);
             isDirty = true;
             renderItems();
-            if (cat.type === 'deal') renderDealRulesUI();
         }
     }
 
