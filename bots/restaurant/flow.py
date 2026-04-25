@@ -100,7 +100,7 @@ ORDERING_STAGES = {
 async def prompt_deal_pick(sender, session, kind, lang="en", bot=None):
     ctx = session["deal_context"]
     deal_id = ctx["deal_id"]
-    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None)
 
     if kind == "burger":
         cat_key = "fastfood"
@@ -186,7 +186,7 @@ async def prompt_bbq_sides(sender, session, lang="en", bot=None):
 async def finalize_bbq_sides(sender, session, lang="en", bot=None):
     ctx = session["deal_context"]
     sides = ctx.get("sides", [])
-    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None)
 
     if ctx.get("deal_id") == "DL5":
         deal_item = MENU["deals"]["items"]["DL5"]
@@ -217,7 +217,7 @@ async def finalize_bbq_sides(sender, session, lang="en", bot=None):
         session["deal_context"] = None
         session["stage"] = "menu"
         await send_text_message(sender, "✅ Sides saved! Here's your menu.", bot=bot)
-        await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
+        await send_main_menu(sender, session["order"], lang, bot=bot)
 
 
 # ========== Order status helpers ==========
@@ -376,7 +376,7 @@ async def try_add_by_quantity(sender, session, text_lower, lang, bot=None):
         return False
     search_term = match.group(2).strip()
 
-    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None)
     item_id, found_item = None, None
     for cat in MENU.values():
         for iid, item in cat.get("items", {}).items():
@@ -701,9 +701,9 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 session["stage"] = "deal_build"
                 session["deal_context"] = {"deal_id": item_id, "deal_item": found_item, "needs": list(rule.get("picks", [])), "picks": []}
                 if rule.get("picks"):
-                    await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot, db_session=db_session)
+                    await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot)
                 else:
-                    await finalize_deal(sender, session, lang, bot=bot, db_session=db_session)
+                    await finalize_deal(sender, session, lang, bot=bot)
                 return
 
         # ── BBQ Items: Prompt for sides ──────────────────────────────────
