@@ -672,7 +672,8 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             # 1. Check Pre-conditions (Must-haves)
             requires = rule.get("requires", [])
             if isinstance(requires, str): requires = [requires]
-            if requires == "burger_in_cart": requires = ["burger"] # Migration support
+            # Migration support for old 'burger_in_cart' string
+            requires = ["burger" if r == "burger_in_cart" else r for r in requires]
             
             for req in requires:
                 # Look for keyword in item ID or Name
@@ -721,8 +722,8 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         if pending.endswith("_PENDING"):
             orig_deal_id = pending.replace("_PENDING", "")
             session["deal_context"] = {} # Clear it so we don't loop
-            # Re-run handle_flow for the original deal
-            return await handle_flow(sender, orig_deal_id, is_button=True, bot=bot, db_session=db_session)
+            # Re-run handle_flow for the original deal with the correct 'ADD_' prefix
+            return await handle_flow(sender, f"ADD_{orig_deal_id}", is_button=True, bot=bot, db_session=db_session)
 
         if item_id.startswith("DL"):
             await send_text_message(sender, t(lang, "deal_added"), bot=bot)
