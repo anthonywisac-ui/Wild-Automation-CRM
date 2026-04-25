@@ -660,31 +660,22 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             session["stage"] = "items"
             stage = "items"
 
-        # ── Dynamic Deal Logic ──────────────────────────────────────────────
+        # ── Deal Rule Check ──────────────────────────────────────────────
         deal_rules = get_deal_rules(bot)
         rule = deal_rules.get(item_id)
-        
-        # ── Universal Requirement Engine ─────────────────────────────────────
-        deal_rules = get_deal_rules(bot)
-        rule = deal_rules.get(item_id)
-        
+
         if rule:
             # 1. Check Pre-conditions (Must-haves)
             requires = rule.get("requires", [])
             if isinstance(requires, str): requires = [requires]
-            # Migration support for old 'burger_in_cart' string
             requires = ["burger" if r == "burger_in_cart" else r for r in requires]
-            
+
             for req in requires:
-                # Intelligent Match: Check Item ID, Name, and Category
                 met = False
                 for k, v in session["order"].items():
                     item_name = v["item"].get("name", "").lower()
-                    # 1. Direct ID match (e.g. "FF" prefix) or keyword in ID
                     if req.lower() in k.lower(): met = True
-                    # 2. Name match (e.g. "Burger" in "Classic Burger")
                     elif req.lower() in item_name: met = True
-                    # 3. Category match (Check if this item belongs to a category matching the requirement)
                     else:
                         for cat_key, cat_data in MENU.items():
                             if k in cat_data.get("items", {}):
@@ -696,12 +687,10 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                     msg = f"To get this deal, please add {req.title()} to your cart first! 🛒"
                     await send_text_message(sender, msg, bot=bot)
                     session["stage"] = "items"
-                    # Try to find which category contains this requirement to help the user
                     help_cat = "fastfood"
                     if "pizza" in req.lower(): help_cat = "pizza"
                     elif "wing" in req.lower() or "side" in req.lower(): help_cat = "sides"
                     elif "drink" in req.lower() or "soda" in req.lower(): help_cat = "drinks"
-                    
                     session["current_cat"] = help_cat
                     session["deal_context"] = {"deal_id": f"{item_id}_PENDING"}
                     await send_category_items(sender, help_cat, session["order"], lang, bot=bot, db_session=db_session)
@@ -717,43 +706,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                     await finalize_deal(sender, session, lang, bot=bot, db_session=db_session)
                 return
 
-        # Default: Just add the item
-        if item_id in session["order"]:
-            session["order"][item_id]["qty"] += 1
-        else:
-            session["order"][item_id] = {"item": found_item, "qty": 1}
-        
-        session["last_added"] = item_id
-        session["stage"] = "qty_control"
-
-        # ── Pending Deal Completion ────────────────────────────────────────
-        # If we were waiting for an item to fulfill a deal, re-trigger the deal now
-        pending = (session.get("deal_context") or {}).get("deal_id", "")
-        if pending.endswith("_PENDING"):
-            orig_deal_id = pending.replace("_PENDING", "")
-            session["deal_context"] = {}
-            # Call inner directly — avoids DB re-read that would return stale session
-            await _handle_flow_inner(sender, f"ADD_{orig_deal_id}", True, bot, session, db_session=db_session)
-            return
-
-        if item_id.startswith("DL"):
-            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
-        
-        await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
-        return
-
-        # DL6: explicit Fish & Chips combo — no sub-picks needed
-        if item_id == "DL6":
-            if "DL6" in session["order"]:
-                session["order"]["DL6"]["qty"] += 1
-            else:
-                session["order"]["DL6"] = {"item": found_item, "qty": 1, "components": ["Fish & Chips", "Soda"]}
-            session["last_added"] = "DL6"
-            session["stage"] = "qty_control"
-            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
-            await send_qty_control(sender, "DL6", found_item, session["order"], lang, bot=bot)
-            return
-
+        # ── BBQ Items: Prompt for sides ──────────────────────────────────
         if item_id in BBQ_NEEDS_SIDES:
             if item_id in session["order"]:
                 session["order"][item_id]["qty"] += 1
@@ -768,33 +721,28 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await prompt_bbq_sides(sender, session, lang, bot=bot)
             return
 
-        # Basic item add
+        # ── Default: Add item to cart ────────────────────────────────────
         if item_id in session["order"]:
             session["order"][item_id]["qty"] += 1
         else:
             session["order"][item_id] = {"item": found_item, "qty": 1}
-        session["last_added"] = item_id
 
-        # DL1_PENDING: burger just chosen, auto-add DL1
-        if (is_burger(item_id) and (session.get("deal_context") or {}).get("deal_id") == "DL1_PENDING"):
-            dl1_item_lookup = find_item("DL1", MENU)
-            dl1_item = dl1_item_lookup[1]
-            if dl1_item:
-                if "DL1" in session["order"]:
-                    session["order"]["DL1"]["qty"] += 1
-                else:
-                    session["order"]["DL1"] = {"item": dl1_item, "qty": 1}
-            session["deal_context"] = None
-            session["stage"] = "qty_control"
-            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
-            await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
+        session["last_added"] = item_id
+        session["stage"] = "qty_control"
+
+        # ── Pending Deal Completion ──────────────────────────────────────
+        pending = (session.get("deal_context") or {}).get("deal_id", "")
+        if pending.endswith("_PENDING"):
+            orig_deal_id = pending.replace("_PENDING", "")
+            session["deal_context"] = {}
+            await _handle_flow_inner(sender, f"ADD_{orig_deal_id}", True, bot, session, db_session=db_session)
             return
 
+        # ── Upsell logic ─────────────────────────────────────────────────
         declined = session.get("upsell_declined_types", [])
         shown = session.get("upsell_shown_for", [])
         upsell_cfg = get_upsell_config(bot)
 
-        # Burger combo upsell
         if (upsell_cfg.get("burger_combo")
                 and is_burger(item_id)
                 and "burger_combo" not in declined
@@ -810,7 +758,6 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 await send_quick_combo_upsell(sender, lang, bot=bot)
                 return
 
-        # Pizza wings upsell
         if (upsell_cfg.get("pizza_wings")
                 and is_pizza(item_id)
                 and "pizza_wings" not in declined
@@ -823,7 +770,9 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_quick_upsell(sender, "SD4", "🍗 Add 6 wings with your pizza? Most people do! 😄", lang, "pizza_wings", bot=bot)
             return
 
-        session["stage"] = "qty_control"
+        if item_id.startswith("DL"):
+            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
+
         await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
         return
 
