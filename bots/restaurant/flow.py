@@ -10,7 +10,8 @@ from .db import (
     customer_order_lookup, manager_pending, save_profile,
     add_to_order_history, get_favorite_items,
     get_session_db, save_session_db, get_profile_db,
-    get_bot_menu, new_session, get_session
+    get_bot_menu, new_session, get_session,
+    save_profile_async, add_to_order_history_async
 )
 from .config import MIN_DELIVERY_ORDER, MIN_PICKUP_ORDER, POST_ORDER_WINDOW, LANG_NAMES, FREE_DELIVERY_THRESHOLD, DELIVERY_CHARGE
 from .strings import t
@@ -575,7 +576,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
     if text == "BACK_TO_DELIVERY":
         session["stage"] = "delivery"
         session["delivery_type"] = ""
-        await send_delivery_buttons(sender, session.get("name", ""), lang, bot=bot)
+        await send_delivery_buttons(sender, session.get("name", ""), lang, bot=bot, table_number=session.get("table_number"))
         return
 
     # Text-based item remove ("remove FF1" / "delete FF1")
@@ -853,7 +854,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
     if text == "CONFIRM_ORDER":
         if session.get("name"):
             session["stage"] = "delivery"
-            await send_delivery_buttons(sender, session["name"], lang, bot=bot)
+            await send_delivery_buttons(sender, session["name"], lang, bot=bot, table_number=session.get("table_number"))
         else:
             session["stage"] = "get_name"
             await send_text_message(sender, t(lang, "name_ask"), bot=bot)
@@ -927,11 +928,11 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
         session["just_confirmed"] = True
         session["just_confirmed_at"] = time.time()
 
-        # Save profile and history BEFORE clearing order
-        save_profile(sender, session, owner_id=bot.owner_id if bot else None)
-        add_to_order_history(sender, order_id, session["order"], bot.owner_id if bot else 1)
-
-        # Non-blocking manager notify (order still intact in session copy)
+        # All post-confirm writes are fire-and-forget — customer doesn't wait
+        _owner_id = bot.owner_id if bot else 1
+        _order_snapshot = session["order"].copy()
+        asyncio.create_task(save_profile_async(sender, session.copy(), owner_id=_owner_id))
+        asyncio.create_task(add_to_order_history_async(sender, order_id, _order_snapshot, _owner_id))
         asyncio.create_task(notify_manager(sender, session.copy(), order_id, bot=bot))
 
         # Now clear for next order
@@ -945,7 +946,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session):
         if is_valid_name(text):
             session["name"] = text.strip().title()[:30]
             session["stage"] = "delivery"
-            await send_delivery_buttons(sender, session["name"], lang, bot=bot)
+            await send_delivery_buttons(sender, session["name"], lang, bot=bot, table_number=session.get("table_number"))
         else:
             await send_text_message(sender, t(lang, "invalid_name"), bot=bot)
         return
