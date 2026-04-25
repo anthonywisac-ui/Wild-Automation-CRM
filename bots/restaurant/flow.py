@@ -676,12 +676,22 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             requires = ["burger" if r == "burger_in_cart" else r for r in requires]
             
             for req in requires:
-                # Look for keyword in item ID or Name
-                met = any(
-                    req.lower() in k.lower() or 
-                    req.lower() in session["order"][k]["item"].get("name", "").lower()
-                    for k in session["order"]
-                )
+                # Intelligent Match: Check Item ID, Name, and Category
+                met = False
+                for k, v in session["order"].items():
+                    item_name = v["item"].get("name", "").lower()
+                    # 1. Direct ID match (e.g. "FF" prefix) or keyword in ID
+                    if req.lower() in k.lower(): met = True
+                    # 2. Name match (e.g. "Burger" in "Classic Burger")
+                    elif req.lower() in item_name: met = True
+                    # 3. Category match (Check if this item belongs to a category matching the requirement)
+                    else:
+                        for cat_key, cat_data in bot_menu.items():
+                            if k in cat_data.get("items", {}):
+                                if req.lower() in cat_key.lower() or req.lower() in cat_data.get("name", "").lower():
+                                    met = True
+                    if met: break
+
                 if not met:
                     msg = f"To get this deal, please add {req.title()} to your cart first! 🛒"
                     await send_text_message(sender, msg, bot=bot)
