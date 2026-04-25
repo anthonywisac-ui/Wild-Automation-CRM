@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -283,6 +283,7 @@ def create_whatsapp_bot_endpoint(bot_data: WhatsappBotCreate, current_user: User
             db.commit()
         
         log_audit(db, current_user.id, "CREATE_BOT", f"Bot created: {new_bot.name}")
+        log_bot_event(new_bot.id, "BOT_CREATED", f"Bot created by {current_user.username} | type={new_bot.bot_type}")
         
         # Bug #4: Run validation immediately
         validate_bot_credentials(new_bot.id, db)
@@ -343,6 +344,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
             db.commit()
             db.refresh(bot)
             log_audit(db, current_user.id, "UPDATE_BOT", f"Updated {bot.name} fields: {', '.join(changes)}")
+            log_bot_event(bot.id, "CONFIG_UPDATED", f"Fields changed: {', '.join(changes)} | by {current_user.username}")
             if "config_json" in changes and bot.bot_type == "restaurant":
                 try:
                     from bots.restaurant.db import invalidate_menu_cache
@@ -397,6 +399,7 @@ def duplicate_bot(bot_id: int, current_user: User = Depends(get_current_user), d
     db.refresh(new_bot)
     
     log_audit(db, current_user.id, "DUPLICATE_BOT", f"Duplicated bot {original.name} to {new_name}")
+    log_bot_event(new_bot.id, "BOT_DUPLICATED", f"Cloned from '{original.name}' by {current_user.username}")
     return {"id": new_bot.id, "message": "Bot duplicated successfully", "new_name": new_name}
 
 @router.get("/bots/whatsapp/{bot_id}/effective-menu")
@@ -424,6 +427,27 @@ def get_effective_menu(bot_id: int, current_user: User = Depends(get_current_use
     except Exception as e:
         raise HTTPException(500, f"Could not load menu: {e}")
 
+@router.get("/bots/whatsapp/{bot_id}/event-logs")
+def get_bot_event_logs(bot_id: int, limit: int = 200, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Fetch event log for a specific bot. Accessible by owner or admin."""
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    if bot.owner_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(403, "Not authorized")
+    logs = (db.query(BotEventLog)
+              .filter(BotEventLog.bot_id == bot_id)
+              .order_by(BotEventLog.created_at.desc())
+              .limit(min(limit, 500))
+              .all())
+    return [{
+        "id": l.id,
+        "event_type": l.event_type,
+        "details": l.details,
+        "customer_phone": l.customer_phone,
+        "created_at": l.created_at.isoformat(),
+    } for l in logs]
+
 @router.post("/activity-log")
 def log_frontend_activity(data: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Log frontend UI events to audit log."""
@@ -445,6 +469,7 @@ def delete_bot_api(bot_id: int, current_user: User = Depends(get_current_user), 
         user_bots.remove(bot_name)
         current_user.bots = user_bots
     
+    log_bot_event(bot.id, "BOT_DELETED", f"Bot '{bot_name}' deleted by {current_user.username}")
     db.delete(bot)
     db.commit()
     log_audit(db, current_user.id, "DELETE_BOT", f"Bot deleted: {bot_name}")

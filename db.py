@@ -186,6 +186,7 @@ class WhatsappBot(Base):
     session_states = relationship("SessionState", back_populates="bot", cascade="all, delete-orphan")
     config_audits = relationship("BotConfigAudit", back_populates="bot", cascade="all, delete-orphan")
     reservations = relationship("Reservation", back_populates="bot", cascade="all, delete-orphan")
+    event_logs = relationship("BotEventLog", back_populates="bot", cascade="all, delete-orphan")
     status = Column(String, default="active") # Bug #7: monitoring status
     last_health_check = Column(DateTime, nullable=True)
 
@@ -275,6 +276,16 @@ class Reservation(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     bot = relationship("WhatsappBot", back_populates="reservations")
 
+class BotEventLog(Base):
+    __tablename__ = "bot_event_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String, nullable=False)
+    details = Column(Text, default="")
+    customer_phone = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    bot = relationship("WhatsappBot", back_populates="event_logs")
+
 class CustomerProfile(Base):
     __tablename__ = "customer_profiles"
     id = Column(Integer, primary_key=True, index=True)
@@ -359,6 +370,10 @@ def save_new_order(db: Session, owner_id: int, customer_phone: str, session_data
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
+    if bot:
+        log_bot_event(bot.id, "ORDER_CREATED",
+                      f"Order #{new_order.id} | ${grand_total:.2f} | {session_data.get('delivery_type','?')} | {len(order_items)} item(s)",
+                      customer_phone=customer_phone)
     return new_order
 
 def get_session_data(db: Session, bot_id: int, phone: str):
@@ -384,6 +399,24 @@ def populate_dummy_data(db: Session):
 def load_customer_profiles_from_db():
     # Placeholder for profiles cache if needed
     pass
+
+def log_bot_event(bot_id: int, event_type: str, details: str = "", customer_phone: str = None):
+    """Fire-and-forget bot event logger. Uses its own session so caller's session isn't affected."""
+    if not bot_id:
+        return
+    try:
+        db = SessionLocal()
+        entry = BotEventLog(bot_id=bot_id, event_type=event_type,
+                            details=details[:1000], customer_phone=customer_phone)
+        db.add(entry)
+        db.commit()
+    except Exception:
+        pass
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 def migrate_db():
     Base.metadata.create_all(bind=engine)
