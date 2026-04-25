@@ -291,6 +291,23 @@
                                     <label class="block text-[10px] font-bold text-slate-500 mb-1 group-focus-within:text-emerald-400 transition-colors">MIN. ORDER ($)</label>
                                     <input type="number" id="ruleMinOrder" class="input-field py-2 text-sm" placeholder="e.g. 15.00">
                                 </div>
+                                <div class="pt-2 border-t border-slate-700">
+                                    <div class="text-[10px] font-bold text-slate-500 uppercase mb-2">Upsell Rules</div>
+                                    <div class="space-y-2">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="upsellBurgerCombo" class="w-4 h-4 rounded accent-emerald-500">
+                                            <span class="text-xs text-slate-300">Burger → Combo Deal</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="upsellPizzaWings" class="w-4 h-4 rounded accent-emerald-500">
+                                            <span class="text-xs text-slate-300">Pizza → Wings Side</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="upsellDesserts" class="w-4 h-4 rounded accent-emerald-500">
+                                            <span class="text-xs text-slate-300">Checkout → Dessert</span>
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -705,8 +722,12 @@
 
         document.getElementById('ruleTax').value = bot.tax_rate || 0;
         document.getElementById('ruleDelivery').value = bot.delivery_fee || 0;
-        document.getElementById('ruleMinOrder').value = currentConfig.rules.min_order || 0;
+        document.getElementById('ruleMinOrder').value = (currentConfig.rules || {}).min_order || 0;
         document.getElementById('botSystemPrompt').value = bot.system_prompt || '';
+        const ur = currentConfig.upsell_rules || {};
+        document.getElementById('upsellBurgerCombo').checked = ur.burger_combo !== false;
+        document.getElementById('upsellPizzaWings').checked = ur.pizza_wings !== false;
+        document.getElementById('upsellDesserts').checked = ur.desserts !== false;
         activeCategoryId = null;
         renderCategories();
         document.getElementById('noCategorySelected').classList.remove('hidden');
@@ -905,9 +926,25 @@
             delivery: delivery_fee,
             min_order: parseFloat(document.getElementById('ruleMinOrder').value || 0)
         };
-        
+
+        currentConfig.upsell_rules = {
+            burger_combo: document.getElementById('upsellBurgerCombo').checked,
+            pizza_wings: document.getElementById('upsellPizzaWings').checked,
+            desserts: document.getElementById('upsellDesserts').checked,
+        };
+
+        // Normalize item IDs to PREFIX+index so flow.py prefix checks work (FF1, PZ1, DR1, etc.)
+        if (currentConfig.categories) {
+            currentConfig.categories.forEach(cat => {
+                const prefix = (cat.prefix || 'IT').toUpperCase();
+                (cat.items || []).forEach((item, idx) => {
+                    item.id = `${prefix}${idx + 1}`;
+                });
+            });
+        }
+
         try {
-            await apiCall(`/api/crm/bots/whatsapp/${botId}`, 'PUT', { 
+            await apiCall(`/api/crm/bots/whatsapp/${botId}`, 'PUT', {
                 config_json: JSON.stringify(currentConfig),
                 tax_rate: tax_rate,
                 delivery_fee: delivery_fee,
