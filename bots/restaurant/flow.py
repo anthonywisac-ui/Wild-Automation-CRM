@@ -667,7 +667,13 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         if rule:
             # Check pre-conditions (requires)
             if rule.get("requires") == "burger_in_cart":
-                has_burger = any(k.startswith("FF") or k.startswith("cat_burgers") for k in session["order"])
+                # Look for items starting with FF or having 'burger' in their name/id
+                has_burger = any(
+                    k.startswith("FF") or 
+                    "burger" in k.lower() or 
+                    "burger" in session["order"][k]["item"].get("name", "").lower()
+                    for k in session["order"]
+                )
                 if not has_burger:
                     await send_text_message(sender, t(lang, "pick_burger_first"), bot=bot)
                     session["stage"] = "items"
