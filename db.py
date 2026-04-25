@@ -72,6 +72,7 @@ class User(Base):
     groq_api_key = Column(String, default="")
     gemini_api_key = Column(String, default="")
     openai_api_key = Column(String, default="")
+    minimax_api_key = Column(String, default="")
     default_voice = Column(String, default="Alloy")
     default_first_message = Column(String, default="Hello, how can I help you?")
 

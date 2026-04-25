@@ -43,6 +43,7 @@ Hours: 10am-11pm daily
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 
 if not GROQ_API_KEY:
     print("❌ GROQ_API_KEY missing")
