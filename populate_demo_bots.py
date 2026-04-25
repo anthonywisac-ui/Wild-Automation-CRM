@@ -9,7 +9,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from db import SessionLocal, WhatsappBot, User
+from db import SessionLocal, WhatsappBot, User, hash_password, migrate_db
 
 MANAGER_NUMBER = "+923351021321"
 
@@ -439,12 +439,22 @@ BOTS.append({
 # ── DB Insertion ──────────────────────────────────────────────────────────────
 
 def run():
+    # Ensure DB tables exist (safe to call multiple times)
+    migrate_db()
+
     db = SessionLocal()
     try:
-        admin = db.query(User).filter(User.role == "admin").first()
+        admin = db.query(User).filter(User.username == "admin").first()
         if not admin:
-            print("❌ No admin user found. Run /cms/setup first.")
-            return
+            import os
+            admin = User(
+                username="admin",
+                hashed_password=hash_password(os.getenv("ADMIN_PASSWORD", "admin123")),
+                role="admin"
+            )
+            db.add(admin)
+            db.commit()
+            print("✅ Admin user created.")
 
         created, skipped = [], []
         for b in BOTS:
