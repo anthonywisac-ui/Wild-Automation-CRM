@@ -660,36 +660,45 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             session["stage"] = "items"
             stage = "items"
 
-        # DL1 requires burger already in cart
-        if item_id == "DL1":
-            has_burger = any(k.startswith("FF") for k in session["order"])
-            if not has_burger:
-                await send_text_message(sender, t(lang, "pick_burger_first"), bot=bot)
-                session["stage"] = "items"
-                session["current_cat"] = "fastfood"
-                session["deal_context"] = {"deal_id": "DL1_PENDING"}
-                await send_category_items(sender, "fastfood", session["order"], lang, bot=bot, db_session=db_session)
-                return
-            if "DL1" in session["order"]:
-                session["order"]["DL1"]["qty"] += 1
-            else:
-                session["order"]["DL1"] = {"item": found_item, "qty": 1}
-            session["last_added"] = "DL1"
-            session["stage"] = "qty_control"
-            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
-            await send_qty_control(sender, "DL1", found_item, session["order"], lang, bot=bot)
-            return
-
+        # ── Dynamic Deal Logic ──────────────────────────────────────────────
         deal_rules = get_deal_rules(bot)
-        if item_id in deal_rules and "picks" in deal_rules[item_id]:
-            rule = deal_rules[item_id]
-            session["stage"] = "deal_build"
-            session["deal_context"] = {"deal_id": item_id, "deal_item": found_item, "needs": list(rule.get("picks", [])), "picks": []}
-            if rule.get("picks"):
-                await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot, db_session=db_session)
-            else:
-                await finalize_deal(sender, session, lang, bot=bot, db_session=db_session)
-            return
+        rule = deal_rules.get(item_id)
+        
+        if rule:
+            # Check pre-conditions (requires)
+            if rule.get("requires") == "burger_in_cart":
+                has_burger = any(k.startswith("FF") or k.startswith("cat_burgers") for k in session["order"])
+                if not has_burger:
+                    await send_text_message(sender, t(lang, "pick_burger_first"), bot=bot)
+                    session["stage"] = "items"
+                    session["current_cat"] = "fastfood"
+                    session["deal_context"] = {"deal_id": f"{item_id}_PENDING"}
+                    await send_category_items(sender, "fastfood", session["order"], lang, bot=bot, db_session=db_session)
+                    return
+
+            # Check picks (selection flow)
+            if "picks" in rule:
+                session["stage"] = "deal_build"
+                session["deal_context"] = {"deal_id": item_id, "deal_item": found_item, "needs": list(rule.get("picks", [])), "picks": []}
+                if rule.get("picks"):
+                    await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot, db_session=db_session)
+                else:
+                    await finalize_deal(sender, session, lang, bot=bot, db_session=db_session)
+                return
+
+        # Default: Just add the item
+        if item_id in session["order"]:
+            session["order"][item_id]["qty"] += 1
+        else:
+            session["order"][item_id] = {"item": found_item, "qty": 1}
+        
+        session["last_added"] = item_id
+        session["stage"] = "qty_control"
+        if item_id.startswith("DL"):
+            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
+        
+        await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
+        return
 
         # DL6: explicit Fish & Chips combo — no sub-picks needed
         if item_id == "DL6":
