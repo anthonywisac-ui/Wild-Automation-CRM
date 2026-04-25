@@ -53,14 +53,28 @@ def get_upsell_config(bot):
 
 
 # ========== Constants for Deal Logic ==========
-DEAL_RULES = {
-    "DL1": {"requires": "burger_in_cart"},
-    "DL2": {"picks": ["burger"]},
-    "DL3": {"picks": ["pizza"]},
-    "DL4": {"picks": ["pizza", "pizza"]},
-    "DL5": {"picks": ["2sides"]},
-    "DL6": {"picks": []},
-}
+# Dynamic Deal Rules Helper
+def get_deal_rules(bot):
+    """
+    Returns deal rules. 
+    Can be overridden in bot.config_json under 'deal_rules' key.
+    Format: {"DL1": {"requires": "burger_in_cart"}, "DL2": {"picks": ["burger"]}}
+    """
+    defaults = {
+        "DL1": {"requires": "burger_in_cart"},
+        "DL2": {"picks": ["burger"]},
+        "DL3": {"picks": ["pizza"]},
+        "DL4": {"picks": ["burger"]},  # Updated to Burger choice as requested
+        "DL5": {"picks": ["2sides"]},
+        "DL6": {"picks": []},
+    }
+    if not bot: return defaults
+    try:
+        cfg = json.loads(bot.config_json or "{}")
+        custom_rules = cfg.get("deal_rules", {})
+        return {**defaults, **custom_rules}
+    except Exception:
+        return defaults
 BBQ_NEEDS_SIDES = {"RB1", "RB2", "BK1", "BK2", "BK3", "BB1", "BB2", "BB4", "BB5"}
 SIDE_CHOICES = {
     "MAC": "Mac & Cheese",
@@ -666,14 +680,15 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_qty_control(sender, "DL1", found_item, session["order"], lang, bot=bot)
             return
 
-        if item_id in ["DL2", "DL3", "DL4", "DL5"]:
-            rule = DEAL_RULES[item_id]
+        deal_rules = get_deal_rules(bot)
+        if item_id in deal_rules and "picks" in deal_rules[item_id]:
+            rule = deal_rules[item_id]
             session["stage"] = "deal_build"
             session["deal_context"] = {"deal_id": item_id, "deal_item": found_item, "needs": list(rule.get("picks", [])), "picks": []}
             if rule.get("picks"):
-                await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot)
+                await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot, db_session=db_session)
             else:
-                await finalize_deal(sender, session, lang, bot=bot)
+                await finalize_deal(sender, session, lang, bot=bot, db_session=db_session)
             return
 
         # DL6: explicit Fish & Chips combo — no sub-picks needed
