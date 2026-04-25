@@ -99,8 +99,26 @@ def get_favorite_items(sender, owner_id):
     return [i for i, c in sorted(item_counts.items(), key=lambda x: x[1], reverse=True)[:3]]
 
 # ========== Dynamic Menu Loader ==========
+_menu_cache = {}  # {phone_number_id: (menu_dict, expires_at)}
+_MENU_TTL = 60    # seconds
+
 def get_bot_menu(phone_number_id=None):
-    """Fetch menu from DB config_json"""
+    """Fetch menu from DB config_json with 60s in-process cache."""
+    now = time.time()
+    cached = _menu_cache.get(phone_number_id)
+    if cached and now < cached[1]:
+        return cached[0]
+
+    result = _fetch_bot_menu_from_db(phone_number_id)
+    _menu_cache[phone_number_id] = (result, now + _MENU_TTL)
+    return result
+
+def invalidate_menu_cache(phone_number_id=None):
+    """Call after menu CMS update to force fresh load."""
+    _menu_cache.pop(phone_number_id, None)
+    _menu_cache.pop(None, None)
+
+def _fetch_bot_menu_from_db(phone_number_id=None):
     from .menu_data import MENU as DEFAULT_MENU
     db = SessionLocal()
     try:
@@ -109,7 +127,7 @@ def get_bot_menu(phone_number_id=None):
             bot = db.query(WhatsappBot).filter(WhatsappBot.phone_number_id == phone_number_id).first()
         if not bot:
             bot = db.query(WhatsappBot).filter(WhatsappBot.bot_type == "restaurant").first()
-        
+
         if bot and bot.config_json:
             try:
                 config = json.loads(bot.config_json)
@@ -133,6 +151,19 @@ def get_bot_menu(phone_number_id=None):
         return DEFAULT_MENU
     finally:
         db.close()
+
+# ========== Async wrappers for fire-and-forget background tasks ==========
+async def save_profile_async(sender, session, owner_id=None):
+    try:
+        save_profile(sender, session, owner_id=owner_id)
+    except Exception as e:
+        print(f"save_profile_async error: {e}")
+
+async def add_to_order_history_async(sender, order_id, order_items, owner_id):
+    try:
+        add_to_order_history(sender, order_id, order_items, owner_id)
+    except Exception as e:
+        print(f"add_to_order_history_async error: {e}")
 
 # ========== Session management ==========
 def new_session(sender=None, bot=None):

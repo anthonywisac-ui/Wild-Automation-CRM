@@ -267,10 +267,8 @@ async def send_order_summary(sender, order, lang, bot=None):
     }
     await _send_request(payload, bot)
 
-async def send_delivery_buttons(sender, name, lang, bot=None):
-    from .db import get_session
-    session = get_session(sender, bot)
-    table_num = session.get("table_number")
+async def send_delivery_buttons(sender, name, lang, bot=None, table_number=None):
+    table_num = table_number
     if table_num:
         body_text = f"Hey {name}! You're at Table {table_num} 🍽️\n\nReady to order?"
         buttons = [{"type": "reply", "reply": {"id": "DINE_IN", "title": safe_btn(t(lang, "dine_in"))}}, {"type": "reply", "reply": {"id": "PICKUP", "title": safe_btn("Takeaway")}}]
