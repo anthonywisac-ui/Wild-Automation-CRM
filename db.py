@@ -286,6 +286,23 @@ class BotEventLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     bot = relationship("WhatsappBot", back_populates="event_logs")
 
+class SaleRecord(Base):
+    """One row per confirmed WhatsApp order. Created by restaurant flow on order confirm."""
+    __tablename__ = "sale_records"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_id = Column(Integer, nullable=False, index=True)
+    customer_phone = Column(String, default="", index=True)
+    delivery_type = Column(String, default="pickup", index=True)  # pickup|delivery|dine_in|car_delivery
+    order_id = Column(String, default="")
+    subtotal = Column(Float, default=0.0)
+    tax = Column(Float, default=0.0)
+    delivery_fee = Column(Float, default=0.0)
+    grand_total = Column(Float, default=0.0)
+    payment_method = Column(String, default="")
+    car_number = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
 class CustomerProfile(Base):
     __tablename__ = "customer_profiles"
     id = Column(Integer, primary_key=True, index=True)

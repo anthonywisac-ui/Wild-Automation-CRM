@@ -28,11 +28,12 @@ from .whatsapp_handlers import (
     send_order_summary, send_delivery_buttons, send_payment_buttons,
     send_order_confirmed, send_quick_combo_upsell, send_quick_upsell,
     send_dessert_upsell, send_min_order_warning, send_returning_customer_menu,
-    send_repeat_order_confirm, send_manager_action_list, send_list_message
+    send_repeat_order_confirm, send_manager_action_list, send_list_message,
+    send_reservation_start
 )
 from .ai_utils import get_ai_response
 from .stripe_utils import create_stripe_checkout_session
-from db import SessionLocal, WhatsappBot, Reservation, ChatHistory
+from db import SessionLocal, WhatsappBot, Reservation, ChatHistory, SaleRecord
 
 # ========== Upsell Config Helper ==========
 def get_upsell_config(bot):
@@ -88,7 +89,17 @@ SIDE_CHOICES = {
 ORDERING_STAGES = {
     "items", "qty_control", "upsell_check", "upsell_combo", "confirm",
     "get_name", "address", "delivery", "payment", "deal_build",
-    "bbq_sides", "repeat_confirm",
+    "bbq_sides", "repeat_confirm", "car_number",
+    "reservation_date", "reservation_time", "reservation_party",
+}
+
+_RESERVATION_KEYWORDS = {
+    "reservation", "reserve", "book", "book a table", "table reservation",
+    "booking", "dine", "book table"
+}
+_CAR_DELIVERY_KEYWORDS = {
+    "car delivery", "curbside", "car", "bring to car", "to my car",
+    "car pickup", "drive thru", "drive-thru"
 }
 
 
@@ -154,6 +165,13 @@ async def finalize_deal(sender, session, lang="en", bot=None):
         components += ["2 Sodas"]
     elif deal_id == "DL6":
         components += ["2 Fries", "4 Sodas"]
+    # Auto-include items defined in deal_rules.includes
+    deal_rules = get_deal_rules(bot)
+    rule = deal_rules.get(deal_id, {})
+    for inc in rule.get("includes", []):
+        name = inc.get("name", inc) if isinstance(inc, dict) else str(inc)
+        if name not in components:
+            components.append(name)
 
     order_entry = {"item": deal_item, "qty": 1, "components": components}
     key = deal_id
@@ -302,6 +320,39 @@ async def handle_order_status(sender, session, lang, text, bot=None):
         )
     await send_text_message(sender, msg, bot=bot)
     await notify_manager_status(order_id, sender, bot=bot, reason=f"OVERDUE by {delay} mins — customer waiting")
+
+
+# ========== Sale Record helper ==========
+def _save_sale_record(sender, session, order_id, bot):
+    try:
+        from utils import get_order_total, get_delivery_fee
+        order = session.get("order", {})
+        subtotal = get_order_total(order)
+        tax_rate = bot.tax_rate if bot else 0.08
+        tax = subtotal * tax_rate
+        delivery_type = session.get("delivery_type", "pickup")
+        delivery = get_delivery_fee(subtotal, delivery_type, bot=bot)
+        db_local = SessionLocal()
+        try:
+            rec = SaleRecord(
+                bot_id=bot.id if bot else None,
+                owner_id=bot.owner_id if bot else 1,
+                customer_phone=sender,
+                delivery_type=delivery_type,
+                order_id=str(order_id),
+                subtotal=subtotal,
+                tax=tax,
+                delivery_fee=delivery,
+                grand_total=subtotal + tax + delivery,
+                payment_method=session.get("payment", ""),
+                car_number=session.get("car_number", ""),
+            )
+            db_local.add(rec)
+            db_local.commit()
+        finally:
+            db_local.close()
+    except Exception as e:
+        print(f"SaleRecord save error: {e}")
 
 
 # ========== Manager notification helpers ==========
@@ -461,6 +512,29 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         session.update(new_session(sender, bot))
         session["stage"] = "lang_select"
         await send_language_selection(sender, bot=bot)
+        return
+
+    # ── Reservation keyword shortcut (from any stage except active stages) ──
+    protected_stages = {"get_name", "address", "payment", "deal_build", "bbq_sides",
+                        "car_number", "reservation_date", "reservation_time", "reservation_party"}
+    if text_lower in _RESERVATION_KEYWORDS and stage not in protected_stages:
+        if not session.get("name"):
+            session["stage"] = "get_name"
+            session["_after_name"] = "reservation"
+            await send_text_message(sender, t(lang, "name_ask"), bot=bot)
+        else:
+            session["stage"] = "reservation_date"
+            await send_reservation_start(sender, bot=bot)
+        return
+
+    # ── Car delivery keyword shortcut ────────────────────────────────────────
+    if any(kw in text_lower for kw in _CAR_DELIVERY_KEYWORDS) and stage not in protected_stages:
+        if session.get("order"):
+            await _handle_flow_inner(sender, "CAR_DELIVERY", True, bot, session, db_session=db_session)
+        else:
+            session["_delivery_pref"] = "car_delivery"
+            await send_text_message(sender, "🚗 Got it! Add items to your cart first, then we'll arrange car delivery.", bot=bot)
+            await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         return
 
     # Early order status check for non-ordering stages
@@ -926,6 +1000,19 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
         return
 
+    if text == "CAR_DELIVERY":
+        session["delivery_type"] = "car_delivery"
+        session["stage"] = "car_number"
+        await send_text_message(sender, "🚗 Great! We'll bring your order to your car.\n\nWhat's your *car colour & plate number*? (e.g. Red Toyota, ABC-123)", bot=bot)
+        return
+
+    if stage == "car_number":
+        session["car_number"] = text.strip()[:60]
+        session["stage"] = "payment"
+        await send_text_message(sender, f"✅ Got it! We'll look for: *{session['car_number']}*\n\nNow choose payment method 👇", bot=bot)
+        await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
+        return
+
     if text in ["DELIVERY", "PICKUP"]:
         total = get_order_total(session["order"])
         try:
@@ -992,6 +1079,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         asyncio.create_task(save_profile_async(sender, session.copy(), owner_id=_owner_id))
         asyncio.create_task(add_to_order_history_async(sender, order_id, _order_snapshot, _owner_id))
         asyncio.create_task(notify_manager(sender, session.copy(), order_id, bot=bot))
+        asyncio.get_event_loop().run_in_executor(None, _save_sale_record, sender, session.copy(), order_id, bot)
 
         # Now clear for next order
         session["stage"] = "post_order"
@@ -1003,8 +1091,13 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
     if stage == "get_name":
         if is_valid_name(text):
             session["name"] = text.strip().title()[:30]
-            session["stage"] = "delivery"
-            await send_delivery_buttons(sender, session["name"], lang, bot=bot, table_number=session.get("table_number"))
+            after = session.pop("_after_name", None)
+            if after == "reservation":
+                session["stage"] = "reservation_date"
+                await send_reservation_start(sender, bot=bot)
+            else:
+                session["stage"] = "delivery"
+                await send_delivery_buttons(sender, session["name"], lang, bot=bot, table_number=session.get("table_number"))
         else:
             await send_text_message(sender, t(lang, "invalid_name"), bot=bot)
         return
@@ -1017,6 +1110,75 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
         else:
             await send_text_message(sender, t(lang, "invalid_address"), bot=bot)
+        return
+
+    # ── Reservation flow stages ────────────────────────────────────────────
+    if stage == "reservation_date":
+        session["_res_date"] = text.strip()
+        session["stage"] = "reservation_time"
+        await send_text_message(sender, f"✅ Date: *{text.strip()}*\n\nWhat *time* would you like? (e.g. 7:30 PM)", bot=bot)
+        return
+
+    if stage == "reservation_time":
+        session["_res_time"] = text.strip()
+        session["stage"] = "reservation_party"
+        await send_text_message(sender, f"✅ Time: *{text.strip()}*\n\nHow many *guests* will be joining? (e.g. 4)", bot=bot)
+        return
+
+    if stage == "reservation_party":
+        try:
+            party = int(re.sub(r"[^0-9]", "", text) or "2")
+        except Exception:
+            party = 2
+        party = max(1, min(party, 50))
+        res_name = session.get("name", "Guest")
+        res_date = session.get("_res_date", "")
+        res_time = session.get("_res_time", "")
+        # Save to DB
+        try:
+            db_local = SessionLocal()
+            res = Reservation(
+                owner_id=bot.owner_id if bot else 1,
+                bot_id=bot.id if bot else None,
+                customer_phone=sender,
+                customer_name=res_name,
+                party_size=party,
+                reservation_date=res_date,
+                reservation_time=res_time,
+                status="Pending",
+            )
+            db_local.add(res)
+            db_local.commit()
+            db_local.close()
+        except Exception as e:
+            print(f"Reservation save error: {e}")
+        # Confirm to customer
+        bot_name = (bot.business_name or bot.name) if bot else "Restaurant"
+        await send_text_message(
+            sender,
+            f"✅ *Reservation Confirmed!*\n\n"
+            f"📅 {res_date} at {res_time}\n"
+            f"👥 {party} guests\n"
+            f"👤 {res_name}\n"
+            f"📱 +{sender}\n\n"
+            f"We'll see you at *{bot_name}*! 🍽️\n"
+            f"Reply *menu* to also place a food order.",
+            bot=bot
+        )
+        # Notify manager
+        body = (
+            f"📅 *NEW RESERVATION*\n\n"
+            f"👤 {res_name}\n📱 +{sender}\n"
+            f"📅 {res_date} at {res_time}\n"
+            f"👥 {party} guests"
+        )
+        asyncio.create_task(send_manager_action_list(
+            f"RES{int(time.time())%10000}", sender,
+            "📅 New Reservation", body, bot=bot
+        ))
+        session["stage"] = "menu"
+        session.pop("_res_date", None)
+        session.pop("_res_time", None)
         return
 
     # Greetings / Fallback

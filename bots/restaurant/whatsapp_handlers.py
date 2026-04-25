@@ -289,20 +289,27 @@ async def send_order_summary(sender, order, lang, bot=None):
 async def send_delivery_buttons(sender, name, lang, bot=None, table_number=None):
     table_num = table_number
     if table_num:
-        body_text = f"Hey {name}! You're at Table {table_num} 🍽️\n\nReady to order?"
-        buttons = [{"type": "reply", "reply": {"id": "DINE_IN", "title": safe_btn(t(lang, "dine_in"))}}, {"type": "reply", "reply": {"id": "PICKUP", "title": safe_btn("Takeaway")}}]
+        body_text = f"Hey {name}! You're at Table {table_num} 🍽️\n\nHow would you like to receive your order?"
+        rows = [
+            {"id": "DINE_IN",       "title": "🍽️ Dine-In",        "description": f"Stay at Table {table_num}"},
+            {"id": "PICKUP",         "title": "🛍️ Takeaway",        "description": "Pick up at counter"},
+        ]
     else:
-        body_text = f"Hey {name}! Delivery or Pickup?\n\n{t(lang, 'delivery_info')}"
-        buttons = [{"type": "reply", "reply": {"id": "DELIVERY", "title": safe_btn(t(lang, "delivery"))}}, {"type": "reply", "reply": {"id": "PICKUP", "title": safe_btn(t(lang, "pickup"))}}]
-    
+        body_text = f"Hey {name}! How would you like to receive your order?\n\n{t(lang, 'delivery_info')}"
+        rows = [
+            {"id": "DELIVERY",       "title": "🚚 Delivery",         "description": "Delivered to your door"},
+            {"id": "PICKUP",         "title": "🛍️ Pickup",           "description": "Collect from store"},
+            {"id": "DINE_IN",        "title": "🍽️ Dine-In",          "description": "Eat at the restaurant"},
+            {"id": "CAR_DELIVERY",   "title": "🚗 Car / Curbside",   "description": "Bring to my car"},
+        ]
     payload = {
         "messaging_product": "whatsapp", "to": sender, "type": "interactive",
         "interactive": {
-            "type": "button",
+            "type": "list",
             "header": {"type": "text", "text": "🚚 How to get your food?"},
             "body": {"text": body_text},
             "footer": {"text": truncate_title(_bot_name(bot), 60)},
-            "action": {"buttons": buttons}
+            "action": {"button": "Choose Option", "sections": [{"title": "Delivery Options", "rows": rows}]}
         }
     }
     await _send_request(payload, bot)
@@ -441,6 +448,16 @@ async def send_manager_action_list(order_id, customer_number, header_text, body_
         }
     }
     await _send_request(payload, bot)
+
+async def send_reservation_start(sender, bot=None):
+    await send_text_message(
+        sender,
+        f"📅 *Table Reservation*\n\nGreat! Let's book a table at {_bot_name(bot)}.\n\n"
+        "Please tell me:\n1️⃣ *Date* (e.g. Tomorrow, 25 April, Friday)\n"
+        "2️⃣ *Time* (e.g. 7:30 PM)\n3️⃣ *Party size* (how many guests?)\n\n"
+        "Start with the *date* 👇",
+        bot=bot
+    )
 
 async def send_whatsapp_to_number(to_number, message, bot=None):
     await send_text_message(to_number, message, bot)
