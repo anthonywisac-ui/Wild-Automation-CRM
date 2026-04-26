@@ -383,6 +383,7 @@ def save_new_order(db: Session, owner_id: int, customer_phone: str, session_data
         tax_amount=tax_amount,
         delivery_amount=delivery_charge,
         grand_total=grand_total,
+        delivery_type=session_data.get("delivery_type", "pickup"),
         status="Pending"
     )
     db.add(new_order)

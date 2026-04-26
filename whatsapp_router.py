@@ -320,8 +320,17 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
         elif bot.bot_type == "restaurant":
             # ── RESTAURANT FLOW ENGINE ──────────────────────────────────────
             try:
-                from bots.restaurant.flow import handle_flow
-                await handle_flow(sender, user_msg, is_button=is_button, bot=bot, db_session=db)
+                from bots.restaurant.flow import handle_flow, handle_manager_flow
+
+                # Route manager messages separately
+                manager_num = (bot.manager_number or "").strip().lstrip("+")
+                sender_bare = sender.strip().lstrip("+")
+                is_manager = manager_num and (sender_bare == manager_num or sender == bot.manager_number)
+
+                if is_manager:
+                    await handle_manager_flow(sender, user_msg, is_button=is_button, bot=bot, db_session=db)
+                else:
+                    await handle_flow(sender, user_msg, is_button=is_button, bot=bot, db_session=db)
 
                 db.add(ChatHistory(
                     user_id=bot.owner_id, customer_phone=sender,
