@@ -430,24 +430,31 @@ async def send_repeat_order_confirm(sender, last_items, address, lang, bot=None)
 async def send_manager_action_list(order_id, customer_number, header_text, body_text, footer_text="Tap action to update customer", bot=None):
     to = (bot.manager_number if bot and bot.manager_number else None) or MANAGER_NUMBER
     if not to:
-        print(f"Manager notification skipped: no manager_number set for bot")
+        print(f"[Manager] Skipped: no manager_number on bot and no global MANAGER_NUMBER")
         return
+    to = to.lstrip("+")  # WhatsApp API requires no leading +
     rows = [
         {"id": f"MGR_{order_id}_READY", "title": "✅ Ready", "description": "Food is ready"},
         {"id": f"MGR_{order_id}_OUTFORDELIVERY", "title": "🚚 Out for Delivery", "description": "Driver on the way"},
         {"id": f"MGR_{order_id}_CANCELLED", "title": "❌ Cancelled", "description": "Cancel this order"}
     ]
+    # WhatsApp interactive list body max 1024 chars
+    body_truncated = body_text[:1000] + "…" if len(body_text) > 1000 else body_text
     payload = {
         "messaging_product": "whatsapp", "to": to, "type": "interactive",
         "interactive": {
             "type": "list",
             "header": {"type": "text", "text": truncate_title(header_text, 60)},
-            "body": {"text": body_text},
+            "body": {"text": body_truncated},
             "footer": {"text": truncate_title(footer_text, 60)},
             "action": {"button": "Update Status", "sections": [{"title": f"Order #{order_id}", "rows": rows}]}
         }
     }
-    await _send_request(payload, bot)
+    r = await _send_request(payload, bot)
+    if r is None or r.status >= 400:
+        # Fallback: plain text so manager always gets notified
+        plain = f"{header_text}\n\n{body_text}\n\nCustomer: +{customer_number}"
+        await send_text_message(to, plain[:4000], bot)
 
 async def send_reservation_start(sender, bot=None):
     await send_text_message(

@@ -663,12 +663,23 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
     if not api_key:
         return {"reply": "⚠️ AI API Key is missing. Please go to Settings and add your API key."}
 
-    # Use the same AI logic as the bots but for the dashboard assistant
     try:
-        from bots.restaurant.ai_utils import get_ai_response
-        # Mocking a session for the dashboard assistant
-        mock_session = {"lang": "en", "stage": "dashboard", "name": current_user.username}
-        reply = await get_ai_response("admin_dashboard", user_msg, "en", mock_session)
+        from ai_utils import (
+            call_groq_api, call_gemini_api, call_openai_api, call_anthropic_api
+        )
+        messages = [
+            {"role": "system", "content": f"You are a helpful CRM assistant for {current_user.username}. Help with managing bots, contacts, and business operations."},
+        ] + req.messages
+        if provider == "groq":
+            reply = await call_groq_api(messages, api_key)
+        elif provider == "gemini":
+            reply = await call_gemini_api(user_msg, messages, api_key)
+        elif provider == "openai":
+            reply = await call_openai_api(messages, api_key)
+        elif provider == "anthropic":
+            reply = await call_anthropic_api(messages, api_key)
+        else:
+            reply = await call_groq_api(messages, api_key)
         return {"reply": reply}
     except Exception as e:
         logger.error(f"AI Chat Error: {e}")
