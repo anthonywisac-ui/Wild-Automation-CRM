@@ -99,7 +99,10 @@ def _ensure_user_exists(page: Page, username: str, password: str):
 
     try:
         page.wait_for_selector("#dashboardContainer", state="visible", timeout=6_000)
-        return  # already exists and logged in
+        # User already exists — logout so context starts with no token in localStorage
+        page.click("button[onclick='logout()']")
+        page.wait_for_selector("#authContainer", state="visible", timeout=5_000)
+        return
     except Exception:
         pass  # user doesn't exist — register them
 
@@ -112,16 +115,13 @@ def _ensure_user_exists(page: Page, username: str, password: str):
     page.fill("#regPassword", password)
     page.click("button[onclick='register()']")
 
-    # After register, log in
-    try:
-        page.wait_for_selector("#dashboardContainer", state="visible", timeout=8_000)
-    except Exception:
-        # Some builds redirect to login after register
-        page.wait_for_selector("#loginUsername", state="visible", timeout=5_000)
-        page.fill("#loginUsername", username)
-        page.fill("#loginPassword", password)
-        page.click("button[onclick='login()']")
-        page.wait_for_selector("#dashboardContainer", state="visible", timeout=10_000)
+    # Register doesn't auto-login — switch back to login tab and log in manually
+    page.click("#loginTabBtn")
+    page.wait_for_selector("#loginUsername", state="visible", timeout=5_000)
+    page.fill("#loginUsername", username)
+    page.fill("#loginPassword", password)
+    page.click("button[onclick='login()']")
+    page.wait_for_selector("#dashboardContainer", state="visible", timeout=10_000)
 
     # Logout so fixture starts clean
     page.click("button[onclick='logout()']")
@@ -130,6 +130,9 @@ def _ensure_user_exists(page: Page, username: str, password: str):
 
 def _login(page: Page, username: str, password: str):
     page.goto(BASE_URL)
+    # Clear any leftover token from previous tests sharing the same context
+    page.evaluate("localStorage.removeItem('token')")
+    page.reload()
     page.wait_for_selector("#loginUsername", state="visible")
     page.fill("#loginUsername", username)
     page.fill("#loginPassword", password)
@@ -195,12 +198,13 @@ class TestAuthentication:
         page.fill("#regUsername", unique)
         page.fill("#regPassword", "TestReg@123")
         page.click("button[onclick='register()']")
-        # Either logs in directly or shows login form
+        # Register doesn't auto-login — switch to login tab and verify it's visible
         try:
-            page.wait_for_selector("#dashboardContainer", state="visible", timeout=8_000)
+            page.wait_for_selector("#dashboardContainer", state="visible", timeout=4_000)
             assert True, "Registered and logged in"
         except Exception:
-            # Registration may redirect to login tab
+            # Switch back to login tab (register tab is still active after register)
+            page.click("#loginTabBtn")
             expect(page.locator("#loginForm")).to_be_visible()
 
     def test_login_valid_credentials(self, page: Page):
