@@ -58,6 +58,7 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
             elif provider == "gemini": api_key = owner.gemini_api_key
             elif provider == "openai": api_key = owner.openai_api_key
             elif provider == "minimax": api_key = owner.minimax_api_key
+            elif provider == "anthropic": api_key = owner.anthropic_api_key
 
     # Fallback to Global Env keys if still empty
     if not api_key:
@@ -65,6 +66,7 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
         elif provider == "gemini": api_key = os.getenv("GEMINI_API_KEY")
         elif provider == "openai": api_key = os.getenv("OPENAI_API_KEY")
         elif provider == "minimax": api_key = os.getenv("MINIMAX_API_KEY")
+        elif provider == "anthropic": api_key = os.getenv("ANTHROPIC_API_KEY")
 
     if not api_key:
         return "System configuration error: Missing API Key."
@@ -80,6 +82,8 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
         elif provider == "minimax":
             from ai.minimax_client import call_minimax_api
             return await call_minimax_api(messages, api_key)
+        elif provider == "anthropic":
+            return await call_anthropic_api(messages, api_key)
     except Exception as e:
         logger.error(f"AI Call failed ({provider}): {str(e)}")
         return "I'm having trouble processing that right now. Please try again in a moment."
@@ -121,3 +125,27 @@ async def call_openai_api(messages, api_key):
     ) as res:
         data = await res.json()
         return data["choices"][0]["message"]["content"]
+
+async def call_anthropic_api(messages, api_key):
+    url = "https://api.anthropic.com/v1/messages"
+    system_content = next((m["content"] for m in messages if m["role"] == "system"), "")
+    user_messages = [m for m in messages if m["role"] != "system"]
+    payload = {
+        "model": "claude-opus-4-5",
+        "max_tokens": 1024,
+        "messages": user_messages,
+    }
+    if system_content:
+        payload["system"] = system_content
+    session = await SharedSession.get_session()
+    async with session.post(
+        url,
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json=payload,
+    ) as res:
+        data = await res.json()
+        return data["content"][0]["text"]
