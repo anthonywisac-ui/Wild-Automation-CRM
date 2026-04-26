@@ -9,6 +9,9 @@ from .strings import t
 
 API_VERSION = "v19.0"
 
+def _bot_name(bot):
+    return (bot.business_name or bot.name) if bot else "Restaurant"
+
 async def _send_request(payload, bot=None):
     token = bot.meta_token if bot and bot.meta_token else WHATSAPP_TOKEN
     phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
@@ -35,7 +38,7 @@ async def send_language_selection(sender, bot=None):
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": "🍽️ Wild Bites Restaurant"},
+            "header": {"type": "text", "text": truncate_title(f"🍽️ {_bot_name(bot)}", 60)},
             "body": {"text": "Welcome! Please choose your language:\n\nمرحباً | स्वागत | Bienvenue | Willkommen"},
             "footer": {"text": "Language Selection"},
             "action": {
@@ -220,7 +223,7 @@ async def send_dessert_upsell(sender, order, lang, bot=None, db_session=None):
             "type": "button",
             "header": {"type": "text", "text": "🍽️ Something Sweet?"},
             "body": {"text": f"{t(lang, 'save_room')}\n{t(lang, 'subtotal')} ${total:.2f}\n\n{dessert_line}"},
-            "footer": {"text": "Wild Bites Restaurant"},
+            "footer": {"text": truncate_title(_bot_name(bot), 60)},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "YES_UPSELL", "title": safe_btn(t(lang, "yes_dessert"))}},
@@ -243,7 +246,7 @@ async def send_cart_view(sender, order, lang, bot=None):
             "type": "button",
             "header": {"type": "text", "text": "🛒 Your Cart"},
             "body": {"text": f"{order_text}\n\n{t(lang, 'subtotal')} ${total:.2f}"},
-            "footer": {"text": "Wild Bites Restaurant"},
+            "footer": {"text": truncate_title(_bot_name(bot), 60)},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "CHECKOUT", "title": safe_btn(f"{t(lang, 'checkout')} ${total:.2f}")}},
@@ -257,11 +260,13 @@ async def send_cart_view(sender, order, lang, bot=None):
 
 async def send_order_summary(sender, order, lang, bot=None):
     total = get_order_total(order)
-    tax = total * 0.08
+    tax_rate = bot.tax_rate if bot else 0.08
+    tax = total * tax_rate
     delivery_note = "\n" + (t(lang, "delivery_note_free") if total >= 50.0 else t(lang, "delivery_note_will_add"))
     grand_total = total + tax
     order_text = get_order_text(order)
-    body_text = f"{order_text}\n\n{t(lang, 'subtotal')} ${total:.2f}\n{t(lang, 'tax')} ${tax:.2f}\n{t(lang, 'grand_total')} ${grand_total:.2f}*{delivery_note}"
+    tax_label = f"Tax ({int(tax_rate*100)}%):" if tax_rate > 0 else "Tax:"
+    body_text = f"{order_text}\n\n{t(lang, 'subtotal')} ${total:.2f}\n{tax_label} ${tax:.2f}\n{t(lang, 'grand_total')} ${grand_total:.2f}*{delivery_note}"
     
     payload = {
         "messaging_product": "whatsapp", "to": sender, "type": "interactive",
@@ -269,7 +274,7 @@ async def send_order_summary(sender, order, lang, bot=None):
             "type": "button",
             "header": {"type": "text", "text": "📋 Order Summary"},
             "body": {"text": body_text[:1000]},
-            "footer": {"text": "Wild Bites Restaurant"},
+            "footer": {"text": truncate_title(_bot_name(bot), 60)},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "CONFIRM_ORDER", "title": safe_btn(t(lang, "confirm"))}},
@@ -284,20 +289,27 @@ async def send_order_summary(sender, order, lang, bot=None):
 async def send_delivery_buttons(sender, name, lang, bot=None, table_number=None):
     table_num = table_number
     if table_num:
-        body_text = f"Hey {name}! You're at Table {table_num} 🍽️\n\nReady to order?"
-        buttons = [{"type": "reply", "reply": {"id": "DINE_IN", "title": safe_btn(t(lang, "dine_in"))}}, {"type": "reply", "reply": {"id": "PICKUP", "title": safe_btn("Takeaway")}}]
+        body_text = f"Hey {name}! You're at Table {table_num} 🍽️\n\nHow would you like to receive your order?"
+        rows = [
+            {"id": "DINE_IN",       "title": "🍽️ Dine-In",        "description": f"Stay at Table {table_num}"},
+            {"id": "PICKUP",         "title": "🛍️ Takeaway",        "description": "Pick up at counter"},
+        ]
     else:
-        body_text = f"Hey {name}! Delivery or Pickup?\n\n{t(lang, 'delivery_info')}"
-        buttons = [{"type": "reply", "reply": {"id": "DELIVERY", "title": safe_btn(t(lang, "delivery"))}}, {"type": "reply", "reply": {"id": "PICKUP", "title": safe_btn(t(lang, "pickup"))}}]
-    
+        body_text = f"Hey {name}! How would you like to receive your order?\n\n{t(lang, 'delivery_info')}"
+        rows = [
+            {"id": "DELIVERY",       "title": "🚚 Delivery",         "description": "Delivered to your door"},
+            {"id": "PICKUP",         "title": "🛍️ Pickup",           "description": "Collect from store"},
+            {"id": "DINE_IN",        "title": "🍽️ Dine-In",          "description": "Eat at the restaurant"},
+            {"id": "CAR_DELIVERY",   "title": "🚗 Car / Curbside",   "description": "Bring to my car"},
+        ]
     payload = {
         "messaging_product": "whatsapp", "to": sender, "type": "interactive",
         "interactive": {
-            "type": "button",
+            "type": "list",
             "header": {"type": "text", "text": "🚚 How to get your food?"},
             "body": {"text": body_text},
-            "footer": {"text": "Wild Bites Restaurant"},
-            "action": {"buttons": buttons}
+            "footer": {"text": truncate_title(_bot_name(bot), 60)},
+            "action": {"button": "Choose Option", "sections": [{"title": "Delivery Options", "rows": rows}]}
         }
     }
     await _send_request(payload, bot)
@@ -324,8 +336,9 @@ async def send_payment_buttons(sender, name, lang, bot=None):
 async def send_order_confirmed(sender, session_data, lang, bot=None):
     order = session_data.get("order", {})
     total = get_order_total(order)
-    tax = total * 0.08
-    delivery_charge = get_delivery_fee(total, session_data.get("delivery_type"))
+    tax_rate = bot.tax_rate if bot else 0.08
+    tax = total * tax_rate
+    delivery_charge = get_delivery_fee(total, session_data.get("delivery_type"), bot=bot)
     grand_total = total + tax + delivery_charge
     order_text = get_order_text(order)
     delivery_type = session_data.get("delivery_type", "pickup")
@@ -334,28 +347,37 @@ async def send_order_confirmed(sender, session_data, lang, bot=None):
     if delivery_type == "dine_in": location_text = f"🍽️ Table {session_data.get('table_number', '?')}" ; eta = "10-15 minutes"
     else: eta = "30-45 mins" if delivery_type == "delivery" else "15-20 mins" ; location_text = f"{'Delivery: ' + session_data.get('address', '') if delivery_type == 'delivery' else 'Store Pickup'}"
     
+    tax_label = f"Tax ({int(tax_rate*100)}%):" if tax_rate > 0 else "Tax:"
+    thank_you = f"Thank you for choosing {_bot_name(bot)}! ❤️"
     msg = f"""{t(lang, 'order_confirmed')}, {session_data.get('name', 'Customer')}! #{order_id}*
 {order_text}
 {t(lang, 'subtotal')} ${total:.2f}
-{t(lang, 'tax')} ${tax:.2f}
+{tax_label} ${tax:.2f}
 {t(lang, 'delivery_charge')} ${delivery_charge:.2f}
 {t(lang, 'grand_total')} ${grand_total:.2f}*
 {location_text}
 Payment: {session_data.get('payment', '')}
 {t(lang, 'ready_in')} *{eta}*
-{t(lang, 'thank_you')}"""
+{thank_you}"""
     await send_text_message(sender, msg, bot)
     return order_id
 
 async def send_min_order_warning(sender, dtype, lang, bot=None):
-    key = "min_delivery" if dtype == "delivery" else "min_pickup"
+    import json as _json
+    try:
+        rules = _json.loads(bot.config_json or "{}").get("rules", {}) if bot else {}
+        min_amount = rules.get("min_order", 15.0) if dtype == "delivery" else rules.get("min_pickup", 5.0)
+    except Exception:
+        min_amount = 15.0 if dtype == "delivery" else 5.0
+    order_type = "delivery" if dtype == "delivery" else "pickup"
+    warning_text = f"Minimum order for {order_type} is ${min_amount:.2f}. Please add more items!"
     alt_id = "PICKUP" if dtype == "delivery" else "DELIVERY"
     alt_label = t(lang, "pickup") if dtype == "delivery" else t(lang, "delivery")
     payload = {
         "messaging_product": "whatsapp", "to": sender, "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": t(lang, key)},
+            "body": {"text": warning_text},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "ADD_MORE", "title": safe_btn(t(lang, "add_more_items"))}},
@@ -373,7 +395,7 @@ async def send_returning_customer_menu(sender, name, fav_text, lang, bot=None):
             "type": "button",
             "header": {"type": "text", "text": "🍽️ Welcome Back!"},
             "body": {"text": f"Welcome back, {name}!{fav_text}\n\nWhat would you like to do today?"},
-            "footer": {"text": "Wild Bites Restaurant"},
+            "footer": {"text": truncate_title(_bot_name(bot), 60)},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "REPEAT_ORDER", "title": safe_btn("Repeat Last Order")}},
@@ -393,7 +415,7 @@ async def send_repeat_order_confirm(sender, last_items, address, lang, bot=None)
             "type": "button",
             "header": {"type": "text", "text": "Repeat Last Order?"},
             "body": {"text": f"Your last order was:\n{last_items}{addr_text}\n\nWant the same again?"},
-            "footer": {"text": "Wild Bites Restaurant"},
+            "footer": {"text": truncate_title(_bot_name(bot), 60)},
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "REPEAT_CONFIRM", "title": safe_btn("Yes, Same Order!")}},
@@ -406,8 +428,10 @@ async def send_repeat_order_confirm(sender, last_items, address, lang, bot=None)
     await _send_request(payload, bot)
 
 async def send_manager_action_list(order_id, customer_number, header_text, body_text, footer_text="Tap action to update customer", bot=None):
-    # This one is special as it goes to MANAGER_NUMBER usually, but for QA/Builder we might override
-    to = MANAGER_NUMBER
+    to = (bot.manager_number if bot and bot.manager_number else None) or MANAGER_NUMBER
+    if not to:
+        print(f"Manager notification skipped: no manager_number set for bot")
+        return
     rows = [
         {"id": f"MGR_{order_id}_READY", "title": "✅ Ready", "description": "Food is ready"},
         {"id": f"MGR_{order_id}_OUTFORDELIVERY", "title": "🚚 Out for Delivery", "description": "Driver on the way"},
@@ -424,6 +448,16 @@ async def send_manager_action_list(order_id, customer_number, header_text, body_
         }
     }
     await _send_request(payload, bot)
+
+async def send_reservation_start(sender, bot=None):
+    await send_text_message(
+        sender,
+        f"📅 *Table Reservation*\n\nGreat! Let's book a table at {_bot_name(bot)}.\n\n"
+        "Please tell me:\n1️⃣ *Date* (e.g. Tomorrow, 25 April, Friday)\n"
+        "2️⃣ *Time* (e.g. 7:30 PM)\n3️⃣ *Party size* (how many guests?)\n\n"
+        "Start with the *date* 👇",
+        bot=bot
+    )
 
 async def send_whatsapp_to_number(to_number, message, bot=None):
     await send_text_message(to_number, message, bot)

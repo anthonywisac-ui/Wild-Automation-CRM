@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -478,17 +478,42 @@ def delete_bot_api(bot_id: int, current_user: User = Depends(get_current_user), 
 def get_stats_api(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     today = datetime.utcnow().date()
     today_start = datetime.combine(today, datetime.min.time())
-    
+
     contacts_count = db.query(Contact).filter(Contact.owner_id == current_user.id).count()
     deals_count = db.query(Deal).filter(Deal.owner_id == current_user.id).count()
-    messages_today = db.query(ChatHistory).filter(ChatHistory.user_id == current_user.id, ChatHistory.created_at >= today_start).count()
-    
+    messages_today = db.query(ChatHistory).filter(
+        ChatHistory.user_id == current_user.id, ChatHistory.created_at >= today_start
+    ).count()
+
+    # SaleRecord breakdown
+    sales_q = db.query(SaleRecord).filter(SaleRecord.owner_id == current_user.id)
+    sales_today_q = sales_q.filter(SaleRecord.created_at >= today_start)
+
+    def _count(q, dtype): return q.filter(SaleRecord.delivery_type == dtype).count()
+    def _sum(q): return sum(r.grand_total for r in q.all()) or 0.0
+
+    reservations_today = db.query(Reservation).filter(
+        Reservation.owner_id == current_user.id,
+        Reservation.created_at >= today_start
+    ).count()
+
     return {
         "contacts": contacts_count,
         "deals": deals_count,
         "messages_today": messages_today,
-        "pipeline_value": 0.0, # sum(deals)
-        "hot_leads": 0
+        "pipeline_value": 0.0,
+        "hot_leads": 0,
+        # Sales counters
+        "sales_today": sales_today_q.count(),
+        "revenue_today": round(_sum(sales_today_q), 2),
+        "sales_total": sales_q.count(),
+        "revenue_total": round(_sum(sales_q), 2),
+        # By delivery type (today)
+        "delivery_today": _count(sales_today_q, "delivery"),
+        "pickup_today": _count(sales_today_q, "pickup"),
+        "dine_in_today": _count(sales_today_q, "dine_in"),
+        "car_delivery_today": _count(sales_today_q, "car_delivery"),
+        "reservations_today": reservations_today,
     }
 
 @router.get("/user/overview")
@@ -648,10 +673,50 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
 # ========== Reservations & Orders ==========
 @router.get("/reservations")
 def get_reservations(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(Reservation).filter(Reservation.owner_id == current_user.id).all()
-    return [{"id": r.id, "customer_name": r.customer_name, "status": r.status} for r in rows]
+    rows = db.query(Reservation).filter(
+        Reservation.owner_id == current_user.id
+    ).order_by(Reservation.created_at.desc()).limit(200).all()
+    return [{
+        "id": r.id,
+        "customer_name": r.customer_name,
+        "customer_phone": r.customer_phone,
+        "party_size": r.party_size,
+        "reservation_date": r.reservation_date,
+        "reservation_time": r.reservation_time,
+        "status": r.status,
+        "notes": r.notes,
+        "bot_id": r.bot_id,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows]
 
-@router.get("/orders")
-def get_orders(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(Order).filter(Order.owner_id == current_user.id).all()
-    return [{"id": r.id, "customer": r.customer_number, "total": r.grand_total, "status": r.status} for r in rows]
+@router.patch("/reservations/{res_id}")
+def update_reservation_status(res_id: int, data: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = db.query(Reservation).filter(Reservation.id == res_id, Reservation.owner_id == current_user.id).first()
+    if not r:
+        raise HTTPException(404, "Not found")
+    if "status" in data:
+        r.status = data["status"]
+    if "notes" in data:
+        r.notes = data["notes"]
+    db.commit()
+    return {"status": "updated"}
+
+@router.get("/sales")
+def get_sales(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.query(SaleRecord).filter(
+        SaleRecord.owner_id == current_user.id
+    ).order_by(SaleRecord.created_at.desc()).limit(200).all()
+    return [{
+        "id": r.id,
+        "order_id": r.order_id,
+        "customer_phone": r.customer_phone,
+        "delivery_type": r.delivery_type,
+        "subtotal": r.subtotal,
+        "tax": r.tax,
+        "delivery_fee": r.delivery_fee,
+        "grand_total": r.grand_total,
+        "payment_method": r.payment_method,
+        "car_number": r.car_number,
+        "bot_id": r.bot_id,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows]

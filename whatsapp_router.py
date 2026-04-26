@@ -5,7 +5,7 @@ import time
 import asyncio
 from datetime import datetime
 from fastapi import APIRouter, Request, Depends, HTTPException, BackgroundTasks
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from db import get_db, WhatsappBot, WebhookEvent, ChatHistory, Contact, SessionLocal, User, log_bot_event
 from ai_utils import get_ai_response
@@ -188,6 +188,27 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
             db.commit()
             return {"status": "ok"}
 
+        # ── QR Table+Bot pre-fill: "TABLE_3_BOT_5" ──────────────────────────
+        import re as _re
+        _qr_match = _re.match(r"^TABLE_(\w+)_BOT_(\d+)$", user_msg)
+        if _qr_match:
+            table_num, target_bot_id = _qr_match.group(1), int(_qr_match.group(2))
+            target = next((b for b in bots if b.id == target_bot_id), None)
+            if target:
+                _set_routed_bot(sender, target_bot_id)
+                bot = target
+                # Store table number in session so flow picks it up
+                from bots.restaurant.db import get_session_db, save_session_db
+                _sess = get_session_db(sender, bot.id, db_session=db) or {}
+                _sess["table_number"] = table_num
+                save_session_db(sender, bot.id, _sess, db_session=db)
+                from bots.restaurant.flow import handle_flow
+                await handle_flow(sender, "hi", is_button=False, bot=bot, db_session=db)
+                db.commit()
+                return {"status": "ok"}
+            # Fallback: plain table message
+            user_msg = f"TABLE_{table_num}"
+
         # ── Multi-Bot Routing ────────────────────────────────────────────────
         if len(bots) > 1:
             if user_msg.startswith("SELECT_BOT_"):
@@ -342,12 +363,35 @@ async def qr_table_entry(bot_id: int, table_number: str, db: Session = Depends(g
     if not bot:
         raise HTTPException(404, "Bot not found")
 
-    # Store table number pending for this bot (picked up on first message)
-    # The restaurant flow reads table_number from the URL and sets it in session
-    wa_link = f"https://wa.me/{bot.phone_number_id}?text=TABLE_{table_number}"
-    return {
-        "message": f"Scan to order from Table {table_number}",
-        "whatsapp_link": wa_link,
-        "bot": bot.name,
-        "table": table_number
-    }
+    # wa.me needs the actual phone number (digits only, no +)
+    # waba_id field stores the WhatsApp display number for some setups;
+    # fall back to phone_number_id if not set
+    wa_number = (bot.waba_id or bot.phone_number_id or "").replace("+", "").replace(" ", "")
+    prefill = f"TABLE_{table_number}_BOT_{bot_id}"
+    wa_link = f"https://wa.me/{wa_number}?text={prefill}"
+    bot_name = bot.business_name or bot.name
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Table {table_number} — {bot_name}</title>
+  <meta http-equiv="refresh" content="1;url={wa_link}">
+  <style>
+    body{{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#111;color:#fff;text-align:center;padding:1rem}}
+    .logo{{font-size:3rem;margin-bottom:1rem}}
+    h1{{font-size:1.5rem;margin:0 0 .5rem}}
+    p{{color:#aaa;font-size:.9rem}}
+    a{{display:inline-block;margin-top:1.5rem;background:#25d366;color:#fff;text-decoration:none;padding:.8rem 2rem;border-radius:999px;font-weight:bold;font-size:1rem}}
+  </style>
+</head>
+<body>
+  <div class="logo">🍽️</div>
+  <h1>{bot_name}</h1>
+  <p>Table {table_number}</p>
+  <p>Opening WhatsApp to start your order…</p>
+  <a href="{wa_link}">Open WhatsApp</a>
+</body>
+</html>"""
+    return HTMLResponse(content=html)

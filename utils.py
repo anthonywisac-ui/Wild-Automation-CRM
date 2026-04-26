@@ -8,12 +8,15 @@ DELIVERY_CHARGE = 4.99
 def get_order_total(order):
     return sum(v["item"]["price"] * v["qty"] for v in order.values())
 
-def get_delivery_fee(subtotal, delivery_type):
+def get_delivery_fee(subtotal, delivery_type, bot=None):
     if delivery_type != "delivery":
+        return 0.0
+    charge = bot.delivery_fee if (bot and bot.delivery_fee is not None) else DELIVERY_CHARGE
+    if charge == 0.0:
         return 0.0
     if subtotal >= FREE_DELIVERY_THRESHOLD:
         return 0.0
-    return DELIVERY_CHARGE
+    return charge
 
 def get_order_text(order):
     if not order:

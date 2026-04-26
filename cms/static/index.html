@@ -76,6 +76,7 @@
                 <button onclick="showTab('dashboard')" data-tab="dashboard" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-tachometer-alt w-5"></i> Dashboard</button>
                 <button onclick="showTab('contacts')" data-tab="contacts" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-users w-5"></i> Contacts</button>
                 <button onclick="showTab('pipeline')" data-tab="pipeline" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-chart-line w-5"></i> Pipeline</button>
+                <button onclick="showTab('reservations')" data-tab="reservations" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-calendar-check w-5"></i> Reservations</button>
                 <button onclick="showTab('calls')" data-tab="calls" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-phone-alt w-5"></i> Call Center</button>
                 <button onclick="showTab('ai')" data-tab="ai" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-robot w-5"></i> AI Assistant</button>
                 <button onclick="showTab('agents')" data-tab="agents" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-microphone-alt w-5"></i> Vapi Agents</button>
@@ -107,7 +108,7 @@
             <!-- TAB: Dashboard -->
             <div id="tab-dashboard" class="tab-content p-6">
                 <h1 class="text-2xl font-bold mb-6">Dashboard Overview</h1>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
                     <div class="card-premium p-6">
                         <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📨 Messages Today</div>
                         <div class="text-4xl font-bold gradient-text" id="statMessagesToday">0</div>
@@ -123,6 +124,39 @@
                     <div class="card-premium p-6">
                         <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">📊 Conversion</div>
                         <div class="text-4xl font-bold text-violet-400" id="statConversionRate">0%</div>
+                    </div>
+                </div>
+                <!-- Restaurant Sales Counters -->
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🛵 Delivery</div>
+                        <div class="text-3xl font-bold text-emerald-400" id="statDeliveryToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🏃 Pickup</div>
+                        <div class="text-3xl font-bold text-sky-400" id="statPickupToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🍽️ Dine-In</div>
+                        <div class="text-3xl font-bold text-orange-400" id="statDineInToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">🚗 Car Delivery</div>
+                        <div class="text-3xl font-bold text-yellow-400" id="statCarDeliveryToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">📅 Reservations</div>
+                        <div class="text-3xl font-bold text-purple-400" id="statReservationsToday">0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
+                    </div>
+                    <div class="card-premium p-4 text-center">
+                        <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">💰 Revenue</div>
+                        <div class="text-3xl font-bold text-green-400" id="statRevenueToday">$0</div>
+                        <div class="text-xs text-gray-500 mt-1">today</div>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -153,6 +187,30 @@
             <div id="tab-pipeline" class="tab-content hidden p-6">
                 <div class="flex justify-between items-center mb-6"><h1 class="text-2xl font-bold">Sales Pipeline</h1><button onclick="openDealForm()" class="bg-green-600 px-4 py-2 rounded-lg font-bold"><i class="fas fa-plus mr-2"></i>Add Deal</button></div>
                 <div class="flex gap-4 overflow-x-auto pb-4" id="kanbanBoard"></div>
+            </div>
+
+            <!-- TAB: Reservations -->
+            <div id="tab-reservations" class="tab-content hidden p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 class="text-2xl font-bold">📅 Reservations</h1>
+                    <button onclick="loadReservations()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm font-bold"><i class="fas fa-sync mr-2"></i>Refresh</button>
+                </div>
+                <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-700 text-gray-300">
+                            <tr>
+                                <th class="p-4">Name</th>
+                                <th class="p-4">Phone</th>
+                                <th class="p-4">Date</th>
+                                <th class="p-4">Time</th>
+                                <th class="p-4">Party</th>
+                                <th class="p-4">Status</th>
+                                <th class="p-4">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reservationsTable"><tr><td colspan="7" class="p-8 text-center text-gray-500">Loading…</td></tr></tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- TAB: Webhook -->
@@ -838,6 +896,14 @@
             currentConfig = JSON.parse(bot.config_json || '{}');
             if (!currentConfig.categories) currentConfig.categories = [];
             if (!currentConfig.rules) currentConfig.rules = { tax: 8, delivery: 5, min_order: 20 };
+            // Backfill includes_text from includes array for display
+            if (currentConfig.deal_rules) {
+                Object.values(currentConfig.deal_rules).forEach(r => {
+                    if (r.includes && !r.includes_text) {
+                        r.includes_text = r.includes.map(i => (typeof i === 'string' ? i : i.name)).join(', ');
+                    }
+                });
+            }
 
             if (bot.bot_type === 'restaurant') {
                 document.getElementById('restaurantBuilderNav').classList.remove('hidden');
@@ -1016,6 +1082,15 @@
 
                 ${cat.type === 'deal' ? `
                 <div class="mt-3 pt-3 border-t border-emerald-500/20 bg-emerald-500/5 -mx-5 -mb-5 p-5 rounded-b-xl">
+                    <div class="mb-3">
+                        <label class="block text-[9px] font-bold text-yellow-400 uppercase mb-1">🎁 Includes (auto-added items)</label>
+                        <input type="text"
+                            value="${escHtml(((currentConfig.deal_rules||{})[((cat.prefix||'DL')+(idx+1))]||{}).includes_text||'')}"
+                            oninput="updateDealIncludes('${(cat.prefix||'DL')}${idx+1}', this.value)"
+                            class="bg-slate-900/30 border border-yellow-500/30 rounded-lg w-full text-[10px] p-2 text-yellow-300 focus:border-yellow-500 outline-none transition-all"
+                            placeholder="Fries, Drink, Sauce (comma-separated)">
+                        <div class="text-[9px] text-slate-500 mt-1">Items always added to the order when this deal is selected.</div>
+                    </div>
                     <div class="flex justify-between items-center mb-3">
                         <label class="block text-[9px] font-bold text-emerald-400 uppercase">Sequence of Logic</label>
                         <div class="flex gap-1">
@@ -1116,6 +1191,15 @@
                 <button onclick="removeDealStep('${dealId}', ${i})" class="text-rose-500/50 hover:text-rose-500 p-1"><i class="fas fa-times-circle"></i></button>
             </div>`;
         }).join('');
+    }
+
+    function updateDealIncludes(dealId, val) {
+        if (!currentConfig.deal_rules) currentConfig.deal_rules = {};
+        if (!currentConfig.deal_rules[dealId]) currentConfig.deal_rules[dealId] = {};
+        const r = currentConfig.deal_rules[dealId];
+        r.includes_text = val;
+        r.includes = val.split(',').map(s => s.trim()).filter(Boolean).map(name => ({ name }));
+        isDirty = true;
     }
 
     function addDealStep(dealId, type = 'pick') {
@@ -1279,6 +1363,7 @@
         if (tabName === 'agents') loadAgents();
         if (tabName === 'calls') loadCalls();
         if (tabName === 'contacts') loadContacts();
+        if (tabName === 'reservations') loadReservations();
         if (tabName === 'pipeline') loadPipeline();
         if (tabName === 'settings') loadSettings();
         if (tabName === 'activity') loadActivityLog();
@@ -1332,6 +1417,34 @@
     };
 
     // ── Contacts ─────────────────────────────────────────────────────────────
+    async function loadReservations() {
+        const tbody = document.getElementById('reservationsTable');
+        try {
+            const rows = await apiCall('/api/crm/reservations', 'GET');
+            const statusColors = { Pending: 'bg-yellow-600', Confirmed: 'bg-green-600', Cancelled: 'bg-red-600', Completed: 'bg-gray-600' };
+            tbody.innerHTML = rows.length ? rows.map(r => `
+                <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                    <td class="p-4 font-medium">${r.customer_name||'-'}</td>
+                    <td class="p-3 text-gray-400">${r.customer_phone||'-'}</td>
+                    <td class="p-3">${r.reservation_date||'-'}</td>
+                    <td class="p-3">${r.reservation_time||'-'}</td>
+                    <td class="p-3 text-center">${r.party_size||'-'}</td>
+                    <td class="p-3"><span class="px-2 py-1 rounded-full text-xs ${statusColors[r.status]||'bg-gray-600'}">${r.status}</span></td>
+                    <td class="p-3 flex gap-2">
+                        <button onclick="updateReservation(${r.id},'Confirmed')" class="text-xs bg-green-700 hover:bg-green-600 px-2 py-1 rounded">✓ Confirm</button>
+                        <button onclick="updateReservation(${r.id},'Cancelled')" class="text-xs bg-red-700 hover:bg-red-600 px-2 py-1 rounded">✕ Cancel</button>
+                    </td>
+                </tr>`).join('')
+            : '<tr><td colspan="7" class="p-8 text-center text-gray-500">No reservations yet.</td></tr>';
+        } catch(e) {
+            tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-red-400">${e.message}</td></tr>`;
+        }
+    }
+    async function updateReservation(id, status) {
+        try { await apiCall('/api/crm/reservations/'+id, 'PATCH', {status}); loadReservations(); }
+        catch(e) { alert(e.message); }
+    }
+
     async function loadContacts() {
         const contacts = await apiCall('/api/crm/contacts','GET');
         const statuses = {'Hot Lead':'bg-red-500','Warm':'bg-yellow-500','New':'bg-blue-500','Cold':'bg-gray-500'};
@@ -1557,6 +1670,12 @@
             document.getElementById('statCallsToday').innerText = stats.calls_today||0;
             document.getElementById('statNewLeads').innerText = stats.new_leads||0;
             document.getElementById('statConversionRate').innerText = (stats.conversion_rate||0)+'%';
+            document.getElementById('statDeliveryToday').innerText = stats.delivery_today||0;
+            document.getElementById('statPickupToday').innerText = stats.pickup_today||0;
+            document.getElementById('statDineInToday').innerText = stats.dine_in_today||0;
+            document.getElementById('statCarDeliveryToday').innerText = stats.car_delivery_today||0;
+            document.getElementById('statReservationsToday').innerText = stats.reservations_today||0;
+            document.getElementById('statRevenueToday').innerText = '$'+(stats.revenue_today||0).toFixed(2);
         } catch(e) {}
         try {
             const data = await apiCall('/api/crm/user/overview','GET');
