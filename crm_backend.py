@@ -149,6 +149,7 @@ class UserConfigSave(BaseModel):
     gemini_api_key: Optional[str] = ""
     openai_api_key: Optional[str] = ""
     minimax_api_key: Optional[str] = ""
+    anthropic_api_key: Optional[str] = ""
     default_voice: Optional[str] = "Alloy"
     default_first_message: Optional[str] = "Hello, how can I help you?"
 
@@ -316,7 +317,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
         "phone_number_id", "waba_id", "verify_token", "manager_number",
         "ai_provider", "ai_api_key", "system_prompt", "webhook_url",
         "config_json", "tax_rate", "delivery_fee", "business_niche", "vapi_agent_id",
-        "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key",
+        "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key",
         "forwarding_url",
     }
 
@@ -329,7 +330,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
                 
                 if old_val != new_val:
                     # Bug #2 & #8: Log Config Audit with masking
-                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key"]
+                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key"]
                     audit = BotConfigAudit(
                         bot_id=bot.id, user_id=current_user.id,
                         field=k, 
@@ -537,6 +538,7 @@ def get_my_config(current_user: User = Depends(get_current_user)):
         "gemini_api_key": mask_sensitive(current_user.gemini_api_key),
         "openai_api_key": mask_sensitive(current_user.openai_api_key),
         "minimax_api_key": mask_sensitive(current_user.minimax_api_key),
+        "anthropic_api_key": mask_sensitive(current_user.anthropic_api_key),
         "default_voice": current_user.default_voice or "Alloy",
         "default_first_message": current_user.default_first_message or "Hello!"
     }
@@ -548,6 +550,7 @@ def save_config(config: UserConfigSave, current_user: User = Depends(get_current
     current_user.gemini_api_key = config.gemini_api_key
     current_user.openai_api_key = config.openai_api_key
     current_user.minimax_api_key = config.minimax_api_key
+    current_user.anthropic_api_key = config.anthropic_api_key
     current_user.default_voice = config.default_voice
     current_user.default_first_message = config.default_first_message
     db.commit()
@@ -655,6 +658,7 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
     elif provider == "gemini": api_key = current_user.gemini_api_key or os.getenv("GEMINI_API_KEY")
     elif provider == "openai": api_key = current_user.openai_api_key or os.getenv("OPENAI_API_KEY")
     elif provider == "minimax": api_key = current_user.minimax_api_key or os.getenv("MINIMAX_API_KEY")
+    elif provider == "anthropic": api_key = current_user.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
 
     if not api_key:
         return {"reply": "⚠️ AI API Key is missing. Please go to Settings and add your API key."}

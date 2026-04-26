@@ -518,9 +518,10 @@
                     <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
                         <h2 class="font-bold mb-4">AI Model Keys</h2>
                         <div class="space-y-4">
-                            <div class="flex gap-4 mb-4">
+                            <div class="flex gap-4 mb-4 flex-wrap">
                                 <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="gemini" class="mr-2"> Gemini</label>
                                 <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="groq" class="mr-2"> Groq</label>
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="anthropic" class="mr-2"> Anthropic (Opus)</label>
                             </div>
                             <div id="geminiKeySection">
                                 <label class="text-xs text-gray-400">Gemini Key</label>
@@ -529,6 +530,10 @@
                             <div id="groqKeySection">
                                 <label class="text-xs text-gray-400">Groq Key</label>
                                 <input type="password" id="groqApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                            </div>
+                            <div id="anthropicKeySection">
+                                <label class="text-xs text-gray-400">Anthropic Key</label>
+                                <input type="password" id="anthropicApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
                             </div>
                             <button onclick="saveAiConfig()" class="w-full bg-green-600 p-2 rounded-lg font-bold mt-4">Update AI Config</button>
                         </div>
@@ -1603,6 +1608,7 @@
             document.querySelectorAll('input[name="aiProvider"]').forEach(r=>{r.checked=r.value===cfg.ai_provider;});
             document.getElementById('geminiApiKey').value = cfg.gemini_api_key||'';
             document.getElementById('groqApiKey').value = cfg.groq_api_key||'';
+            document.getElementById('anthropicApiKey').value = cfg.anthropic_api_key||'';
         } catch(e) {}
     }
     async function saveAiConfig() {
@@ -1610,8 +1616,9 @@
         const gemini = document.getElementById('geminiApiKey').value;
         const groq = document.getElementById('groqApiKey').value;
         try {
+            const anthropic = document.getElementById('anthropicApiKey').value;
             await apiCall('/api/crm/settings/save-config','POST',{
-                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:''
+                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic
             });
             alert('✅ AI config saved!');
         } catch(e) { alert(e.message); }
