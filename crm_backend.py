@@ -150,6 +150,7 @@ class UserConfigSave(BaseModel):
     openai_api_key: Optional[str] = ""
     minimax_api_key: Optional[str] = ""
     anthropic_api_key: Optional[str] = ""
+    openrouter_api_key: Optional[str] = ""
     default_voice: Optional[str] = "Alloy"
     default_first_message: Optional[str] = "Hello, how can I help you?"
 
@@ -330,7 +331,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
                 
                 if old_val != new_val:
                     # Bug #2 & #8: Log Config Audit with masking
-                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key"]
+                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key", "openrouter_api_key"]
                     audit = BotConfigAudit(
                         bot_id=bot.id, user_id=current_user.id,
                         field=k, 
@@ -539,6 +540,7 @@ def get_my_config(current_user: User = Depends(get_current_user)):
         "openai_api_key": mask_sensitive(current_user.openai_api_key),
         "minimax_api_key": mask_sensitive(current_user.minimax_api_key),
         "anthropic_api_key": mask_sensitive(current_user.anthropic_api_key),
+        "openrouter_api_key": mask_sensitive(current_user.openrouter_api_key),
         "default_voice": current_user.default_voice or "Alloy",
         "default_first_message": current_user.default_first_message or "Hello!"
     }
@@ -551,6 +553,7 @@ def save_config(config: UserConfigSave, current_user: User = Depends(get_current
     current_user.openai_api_key = config.openai_api_key
     current_user.minimax_api_key = config.minimax_api_key
     current_user.anthropic_api_key = config.anthropic_api_key
+    current_user.openrouter_api_key = config.openrouter_api_key
     current_user.default_voice = config.default_voice
     current_user.default_first_message = config.default_first_message
     db.commit()
@@ -659,13 +662,14 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
     elif provider == "openai": api_key = current_user.openai_api_key or os.getenv("OPENAI_API_KEY")
     elif provider == "minimax": api_key = current_user.minimax_api_key or os.getenv("MINIMAX_API_KEY")
     elif provider == "anthropic": api_key = current_user.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+    elif provider == "openrouter": api_key = current_user.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
 
     if not api_key:
         return {"reply": "⚠️ AI API Key is missing. Please go to Settings and add your API key."}
 
     try:
         from ai_utils import (
-            call_groq_api, call_gemini_api, call_openai_api, call_anthropic_api
+            call_groq_api, call_gemini_api, call_openai_api, call_anthropic_api, call_openrouter_api
         )
         messages = [
             {"role": "system", "content": f"You are a helpful CRM assistant for {current_user.username}. Help with managing bots, contacts, and business operations."},
@@ -678,12 +682,42 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
             reply = await call_openai_api(messages, api_key)
         elif provider == "anthropic":
             reply = await call_anthropic_api(messages, api_key)
+        elif provider == "openrouter":
+            reply = await call_openrouter_api(messages, api_key)
         else:
             reply = await call_groq_api(messages, api_key)
         return {"reply": reply}
     except Exception as e:
         logger.error(f"AI Chat Error: {e}")
         return {"reply": f"Sorry, I couldn't process that. Error: {str(e)}"}
+
+# ========== Test Endpoints ==========
+@router.post("/test/manager-ping")
+async def test_manager_ping(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Send a plain-text test message to MANAGER_NUMBER. Returns raw WhatsApp API response."""
+    import aiohttp as _aiohttp
+    from config import WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, MANAGER_NUMBER, WHATSAPP_API_VERSION
+    from session import SharedSession
+
+    to = MANAGER_NUMBER.lstrip("+") if MANAGER_NUMBER else ""
+    if not to:
+        return {"ok": False, "error": "MANAGER_NUMBER env var not set"}
+
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": "🔔 Wild CRM — test manager notification. If you see this, notifications are working!"}
+    }
+    try:
+        session = await SharedSession.get_session()
+        async with session.post(url, json=payload, headers=headers) as r:
+            body = await r.json()
+            return {"ok": r.status < 400, "status": r.status, "response": body, "to": to, "phone_id": WHATSAPP_PHONE_NUMBER_ID}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 # ========== Reservations & Orders ==========
 @router.get("/reservations")
