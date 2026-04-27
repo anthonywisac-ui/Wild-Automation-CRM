@@ -307,6 +307,15 @@ class SaleRecord(Base):
     car_number = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
+class BotPlugin(Base):
+    __tablename__ = "bot_plugins"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    plugin_name = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True)
+    config_json = Column(Text, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class CustomerProfile(Base):
     __tablename__ = "customer_profiles"
     id = Column(Integer, primary_key=True, index=True)
