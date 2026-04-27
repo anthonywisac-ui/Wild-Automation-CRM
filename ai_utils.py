@@ -92,6 +92,14 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
         logger.error(f"AI Call failed ({provider}): {str(e)}")
         return "I'm having trouble processing that right now. Please try again in a moment."
 
+def _openai_extract(data):
+    """Extract text from OpenAI-compatible response or raise with real error message."""
+    if "choices" in data:
+        return data["choices"][0]["message"]["content"]
+    err = data.get("error", {})
+    msg = err.get("message") or str(data)
+    raise ValueError(f"API error: {msg}")
+
 async def call_groq_api(messages, api_key):
     url = "https://api.groq.com/openai/v1/chat/completions"
     session = await SharedSession.get_session()
@@ -101,23 +109,21 @@ async def call_groq_api(messages, api_key):
         json={"model": "llama-3.1-8b-instant", "messages": messages}
     ) as res:
         data = await res.json()
-        return data["choices"][0]["message"]["content"]
+        return _openai_extract(data)
 
 async def call_gemini_api(user_message, messages, api_key):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    # Convert messages to Gemini format
     contents = []
     for m in messages:
         role = "user" if m["role"] == "user" else "model"
         contents.append({"role": role, "parts": [{"text": m["content"]}]})
-    
-    payload = {"contents": contents}
     session = await SharedSession.get_session()
-    async with session.post(url, json=payload) as res:
+    async with session.post(url, json={"contents": contents}) as res:
         data = await res.json()
         if "candidates" in data:
             return data["candidates"][0]["content"]["parts"][0]["text"]
-        return "I'm sorry, I couldn't generate a response."
+        err = data.get("error", {}).get("message") or str(data)
+        raise ValueError(f"Gemini error: {err}")
 
 async def call_openai_api(messages, api_key):
     url = "https://api.openai.com/v1/chat/completions"
@@ -128,7 +134,7 @@ async def call_openai_api(messages, api_key):
         json={"model": "gpt-3.5-turbo", "messages": messages}
     ) as res:
         data = await res.json()
-        return data["choices"][0]["message"]["content"]
+        return _openai_extract(data)
 
 async def call_openrouter_api(messages, api_key, model="openai/gpt-4o-mini"):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -139,7 +145,7 @@ async def call_openrouter_api(messages, api_key, model="openai/gpt-4o-mini"):
         json={"model": model, "messages": messages}
     ) as res:
         data = await res.json()
-        return data["choices"][0]["message"]["content"]
+        return _openai_extract(data)
 
 async def call_anthropic_api(messages, api_key):
     url = "https://api.anthropic.com/v1/messages"
@@ -163,4 +169,7 @@ async def call_anthropic_api(messages, api_key):
         json=payload,
     ) as res:
         data = await res.json()
-        return data["content"][0]["text"]
+        if "content" in data:
+            return data["content"][0]["text"]
+        err = data.get("error", {}).get("message") or str(data)
+        raise ValueError(f"Anthropic error: {err}")
