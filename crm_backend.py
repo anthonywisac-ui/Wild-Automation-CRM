@@ -715,7 +715,8 @@ async def test_manager_ping(current_user: User = Depends(get_current_user), db: 
         session = await SharedSession.get_session()
         async with session.post(url, json=payload, headers=headers) as r:
             body = await r.json()
-            return {"ok": r.status < 400, "status": r.status, "response": body, "to": to, "phone_id": WHATSAPP_PHONE_NUMBER_ID}
+            note = "API accepted. If message not received: manager must first send any WhatsApp message TO the bot number to open the 24hr conversation window." if r.status < 400 else ""
+            return {"ok": r.status < 400, "status": r.status, "response": body, "to": to, "phone_id": WHATSAPP_PHONE_NUMBER_ID, "note": note}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
