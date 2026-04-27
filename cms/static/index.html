@@ -82,6 +82,7 @@
                 <button onclick="showTab('agents')" data-tab="agents" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-microphone-alt w-5"></i> Vapi Agents</button>
                 <button onclick="showTab('webhook')" data-tab="webhook" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-plug w-5"></i> Webhook Live</button>
                 <button onclick="showTab('settings')" data-tab="settings" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-cog w-5"></i> Settings</button>
+                <button onclick="showTab('plugins')" data-tab="plugins" class="sidebar-btn w-full text-left px-3 py-2 rounded-lg flex items-center gap-3 hover:bg-gray-700 transition"><i class="fas fa-puzzle-piece w-5"></i> Plugins</button>
                 
                 <div id="nonAdminBuilderSection" class="hidden pt-4 mt-2 border-t border-gray-700">
                     <div class="text-xs text-gray-400 px-3 mb-2">BOT BUILDER</div>
@@ -539,6 +540,16 @@
                             <div id="openrouterKeySection">
                                 <label class="text-xs text-gray-400">OpenRouter Key</label>
                                 <input type="password" id="openrouterApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                                <label class="text-xs text-gray-400 mt-2 block">OpenRouter Model</label>
+                                <select id="openrouterModel" class="w-full bg-gray-700 p-2 rounded-lg mt-1 text-white">
+                                    <option value="nousresearch/hermes-3-llama-3.1-405b:free">Hermes 3 – Llama 3.1 405B (Free) ⭐ Recommended</option>
+                                    <option value="minimax/minimax-m1:extended">MiniMax M1 Extended (Free) – Multilingual</option>
+                                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                                    <option value="openai/gpt-4o">GPT-4o</option>
+                                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (via OpenRouter)</option>
+                                    <option value="custom">Custom model…</option>
+                                </select>
+                                <input type="text" id="openrouterModelCustom" placeholder="e.g. minimax/minimax-m2.5:free" class="w-full bg-gray-700 p-2 rounded-lg mt-1 hidden">
                             </div>
                             <button onclick="saveAiConfig()" class="w-full bg-green-600 p-2 rounded-lg font-bold mt-4">Update AI Config</button>
                             <button onclick="testManagerPing()" class="w-full bg-blue-600 p-2 rounded-lg font-bold mt-2">📱 Test Manager Notification</button>
@@ -650,6 +661,18 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            <!-- TAB: Plugins -->
+            <div id="tab-plugins" class="tab-content hidden p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h1 class="text-2xl font-bold">🧩 Bot Plugins</h1>
+                    <select id="pluginBotSelect" onchange="loadPluginsForBot(this.value)" class="bg-gray-700 p-2 rounded-lg text-white min-w-48">
+                        <option value="">— Select a Bot —</option>
+                    </select>
+                </div>
+                <p class="text-gray-400 text-sm mb-6">Plugins run before the main bot flow. Enable per-bot without touching any code.</p>
+                <div id="pluginsList" class="space-y-4"></div>
             </div>
 
             <div id="tab-ai" class="tab-content hidden p-6">
@@ -1379,6 +1402,7 @@
         if (tabName === 'pipeline') loadPipeline();
         if (tabName === 'settings') loadSettings();
         if (tabName === 'activity') loadActivityLog();
+        if (tabName === 'plugins') loadPluginsTab();
         trackActivity('UI_NAV', `Navigated to: ${tabName}`);
     }
 
@@ -1617,8 +1641,22 @@
             document.getElementById('groqApiKey').value = cfg.groq_api_key||'';
             document.getElementById('anthropicApiKey').value = cfg.anthropic_api_key||'';
             document.getElementById('openrouterApiKey').value = cfg.openrouter_api_key||'';
+            const savedModel = cfg.openrouter_model || 'nousresearch/hermes-3-llama-3.1-405b:free';
+            const modelSel = document.getElementById('openrouterModel');
+            const knownOpts = Array.from(modelSel.options).map(o=>o.value);
+            if (knownOpts.includes(savedModel)) {
+                modelSel.value = savedModel;
+            } else {
+                modelSel.value = 'custom';
+                document.getElementById('openrouterModelCustom').value = savedModel;
+                document.getElementById('openrouterModelCustom').classList.remove('hidden');
+            }
         } catch(e) {}
     }
+    document.getElementById('openrouterModel').addEventListener('change', function() {
+        const custom = document.getElementById('openrouterModelCustom');
+        if (this.value === 'custom') { custom.classList.remove('hidden'); } else { custom.classList.add('hidden'); }
+    });
     async function testManagerPing() {
         const el = document.getElementById('managerPingResult');
         el.classList.remove('hidden');
@@ -1644,12 +1682,101 @@
         try {
             const anthropic = document.getElementById('anthropicApiKey').value;
             const openrouter = document.getElementById('openrouterApiKey').value;
+            const orModelSel = document.getElementById('openrouterModel').value;
+            const orModel = orModelSel === 'custom' ? document.getElementById('openrouterModelCustom').value : orModelSel;
             await apiCall('/api/crm/settings/save-config','POST',{
-                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic, openrouter_api_key:openrouter
+                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic, openrouter_api_key:openrouter, openrouter_model:orModel
             });
             alert('✅ AI config saved!');
         } catch(e) { alert(e.message); }
     }
+    // ── Plugin Manager ────────────────────────────────────────────────────────
+    let _availablePlugins = [];
+    let _botPluginConfigs = {};  // plugin_name -> {enabled, config}
+
+    async function loadPluginsTab() {
+        // Populate bot dropdown
+        const sel = document.getElementById('pluginBotSelect');
+        try {
+            const bots = await apiCall('/api/crm/bots/whatsapp', 'GET');
+            sel.innerHTML = '<option value="">— Select a Bot —</option>' +
+                bots.map(b => `<option value="${b.id}">${b.name} (${b.business_name||b.bot_type})</option>`).join('');
+        } catch(e) {}
+        // Load available plugins
+        try { _availablePlugins = await apiCall('/api/crm/plugins', 'GET'); } catch(e) {}
+        document.getElementById('pluginsList').innerHTML = '<p class="text-gray-500 text-sm">Select a bot above to manage its plugins.</p>';
+    }
+
+    async function loadPluginsForBot(botId) {
+        if (!botId) { document.getElementById('pluginsList').innerHTML = ''; return; }
+        _botPluginConfigs = {};
+        try {
+            const rows = await apiCall(`/api/crm/bots/whatsapp/${botId}/plugins`, 'GET');
+            rows.forEach(r => { _botPluginConfigs[r.plugin_name] = r; });
+        } catch(e) {}
+        renderPlugins(botId);
+    }
+
+    function renderPlugins(botId) {
+        const container = document.getElementById('pluginsList');
+        if (!_availablePlugins.length) {
+            container.innerHTML = '<p class="text-gray-400">No plugins available.</p>'; return;
+        }
+        container.innerHTML = _availablePlugins.map(p => {
+            const saved = _botPluginConfigs[p.name] || {enabled: false, config: {}};
+            const checked = saved.enabled ? 'checked' : '';
+            const fields = (p.config_schema || []).map(f => {
+                const val = (saved.config || {})[f.key] !== undefined ? (saved.config || {})[f.key] : (f.default || '');
+                if (f.type === 'textarea' || f.type === 'json') {
+                    return `<div class="mt-2"><label class="text-xs text-gray-400">${f.label}</label>
+                        <textarea id="pcfg_${p.name}_${f.key}" rows="3" class="w-full bg-gray-700 p-2 rounded mt-1 text-sm font-mono">${val}</textarea></div>`;
+                } else if (f.type === 'checkbox') {
+                    const bval = String(val).toLowerCase() === 'true';
+                    return `<div class="mt-2 flex items-center gap-2"><input type="checkbox" id="pcfg_${p.name}_${f.key}" ${bval?'checked':''}>
+                        <label class="text-xs text-gray-400">${f.label}</label></div>`;
+                } else {
+                    return `<div class="mt-2"><label class="text-xs text-gray-400">${f.label}</label>
+                        <input type="${f.type||'text'}" id="pcfg_${p.name}_${f.key}" value="${val}" placeholder="${f.placeholder||''}" class="w-full bg-gray-700 p-2 rounded mt-1 text-sm"></div>`;
+                }
+            }).join('');
+            return `<div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                <div class="flex items-start justify-between mb-3">
+                    <div>
+                        <h3 class="font-bold text-white">${p.title} <span class="text-xs text-gray-500 ml-1">v${p.version}</span></h3>
+                        <p class="text-sm text-gray-400 mt-1">${p.description}</p>
+                    </div>
+                    <label class="flex items-center cursor-pointer ml-4">
+                        <div class="relative">
+                            <input type="checkbox" id="ptoggle_${p.name}" class="sr-only" ${checked}>
+                            <div class="w-10 h-6 bg-gray-600 rounded-full peer-checked:bg-green-500 transition" onclick="document.getElementById('ptoggle_${p.name}').click()"></div>
+                            <div class="absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition"></div>
+                        </div>
+                    </label>
+                </div>
+                ${fields}
+                <button onclick="savePlugin('${botId}','${p.name}')" class="mt-3 bg-green-600 px-4 py-1.5 rounded text-sm font-bold hover:bg-green-500">Save</button>
+                <span id="psave_${p.name}" class="ml-2 text-xs text-green-400 hidden">✅ Saved</span>
+            </div>`;
+        }).join('');
+    }
+
+    async function savePlugin(botId, pluginName) {
+        const enabled = document.getElementById(`ptoggle_${pluginName}`)?.checked || false;
+        const plugin = _availablePlugins.find(p => p.name === pluginName);
+        const config = {};
+        (plugin?.config_schema || []).forEach(f => {
+            const el = document.getElementById(`pcfg_${pluginName}_${f.key}`);
+            if (!el) return;
+            config[f.key] = f.type === 'checkbox' ? String(el.checked) : el.value;
+        });
+        try {
+            await apiCall(`/api/crm/bots/whatsapp/${botId}/plugins/${pluginName}`, 'POST', {enabled, config});
+            _botPluginConfigs[pluginName] = {enabled, config};
+            const badge = document.getElementById(`psave_${pluginName}`);
+            if (badge) { badge.classList.remove('hidden'); setTimeout(() => badge.classList.add('hidden'), 2000); }
+        } catch(e) { alert('Save failed: ' + e.message); }
+    }
+
     async function seedDemoBots() {
         const btn = event.target;
         const res = document.getElementById('seedResult');

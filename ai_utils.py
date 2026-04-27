@@ -87,7 +87,10 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
         elif provider == "anthropic":
             return await call_anthropic_api(messages, api_key)
         elif provider == "openrouter":
-            return await call_openrouter_api(messages, api_key)
+            from db import User
+            owner = db.query(User).filter(User.id == bot.owner_id).first()
+            or_model = (owner.openrouter_model if owner else None) or "nousresearch/hermes-3-llama-3.1-405b:free"
+            return await call_openrouter_api(messages, api_key, model=or_model)
     except Exception as e:
         logger.error(f"AI Call failed ({provider}): {str(e)}")
         return "I'm having trouble processing that right now. Please try again in a moment."

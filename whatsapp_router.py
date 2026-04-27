@@ -284,7 +284,20 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
 
         background_tasks.add_task(log_chat_async, bot.owner_id, sender, user_msg, bot.id)
 
-        # ── 4. Route to correct handler ──────────────────────────────────────
+        # ── 4. Plugin pre-message hooks (run before bot flow) ───────────────
+        try:
+            from plugins import run_pre_message_hooks
+            plugin_reply = await run_pre_message_hooks(sender, user_msg, bot, db)
+            if plugin_reply:
+                from whatsapp_handlers import send_text_message_v2
+                await send_text_message_v2(sender, plugin_reply, bot)
+                db.add(ChatHistory(user_id=bot.owner_id, customer_phone=sender, role="assistant", content=plugin_reply))
+                db.commit()
+                return {"status": "ok"}
+        except Exception as _pe:
+            logger.warning(f"Plugin hook error: {_pe}")
+
+        # ── 5. Route to correct handler ──────────────────────────────────────
         if bot.forwarding_url:
             # ── FORWARDING MODE: send raw payload to external engine (e.g. Railway) ──
             import aiohttp

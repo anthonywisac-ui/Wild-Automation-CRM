@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -151,6 +151,7 @@ class UserConfigSave(BaseModel):
     minimax_api_key: Optional[str] = ""
     anthropic_api_key: Optional[str] = ""
     openrouter_api_key: Optional[str] = ""
+    openrouter_model: Optional[str] = "nousresearch/hermes-3-llama-3.1-405b:free"
     default_voice: Optional[str] = "Alloy"
     default_first_message: Optional[str] = "Hello, how can I help you?"
 
@@ -541,6 +542,7 @@ def get_my_config(current_user: User = Depends(get_current_user)):
         "minimax_api_key": mask_sensitive(current_user.minimax_api_key),
         "anthropic_api_key": mask_sensitive(current_user.anthropic_api_key),
         "openrouter_api_key": mask_sensitive(current_user.openrouter_api_key),
+        "openrouter_model": current_user.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free",
         "default_voice": current_user.default_voice or "Alloy",
         "default_first_message": current_user.default_first_message or "Hello!"
     }
@@ -554,6 +556,7 @@ def save_config(config: UserConfigSave, current_user: User = Depends(get_current
     current_user.minimax_api_key = config.minimax_api_key
     current_user.anthropic_api_key = config.anthropic_api_key
     current_user.openrouter_api_key = config.openrouter_api_key
+    current_user.openrouter_model = config.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free"
     current_user.default_voice = config.default_voice
     current_user.default_first_message = config.default_first_message
     db.commit()
@@ -683,7 +686,8 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
         elif provider == "anthropic":
             reply = await call_anthropic_api(messages, api_key)
         elif provider == "openrouter":
-            reply = await call_openrouter_api(messages, api_key)
+            or_model = current_user.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free"
+            reply = await call_openrouter_api(messages, api_key, model=or_model)
         else:
             reply = await call_groq_api(messages, api_key)
         return {"reply": reply}
@@ -719,6 +723,50 @@ async def test_manager_ping(current_user: User = Depends(get_current_user), db: 
             return {"ok": r.status < 400, "status": r.status, "response": body, "to": to, "phone_id": WHATSAPP_PHONE_NUMBER_ID, "note": note}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+# ========== Plugin System ==========
+@router.get("/plugins")
+def list_available_plugins(current_user: User = Depends(get_current_user)):
+    from plugins import list_plugins
+    return list_plugins()
+
+@router.get("/bots/whatsapp/{bot_id}/plugins")
+def get_bot_plugins(bot_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    rows = db.query(BotPlugin).filter(BotPlugin.bot_id == bot_id).all()
+    return [{"plugin_name": r.plugin_name, "enabled": r.enabled, "config": json.loads(r.config_json or "{}")} for r in rows]
+
+class PluginSave(BaseModel):
+    enabled: bool = True
+    config: dict = {}
+
+@router.post("/bots/whatsapp/{bot_id}/plugins/{plugin_name}")
+def save_bot_plugin(bot_id: int, plugin_name: str, data: PluginSave,
+                    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    row = db.query(BotPlugin).filter(BotPlugin.bot_id == bot_id, BotPlugin.plugin_name == plugin_name).first()
+    if row:
+        row.enabled = data.enabled
+        row.config_json = json.dumps(data.config)
+    else:
+        row = BotPlugin(bot_id=bot_id, plugin_name=plugin_name, enabled=data.enabled, config_json=json.dumps(data.config))
+        db.add(row)
+    db.commit()
+    return {"ok": True, "plugin_name": plugin_name, "enabled": data.enabled}
+
+@router.delete("/bots/whatsapp/{bot_id}/plugins/{plugin_name}")
+def delete_bot_plugin(bot_id: int, plugin_name: str,
+                      current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    db.query(BotPlugin).filter(BotPlugin.bot_id == bot_id, BotPlugin.plugin_name == plugin_name).delete()
+    db.commit()
+    return {"ok": True}
 
 # ========== Reservations & Orders ==========
 @router.get("/reservations")

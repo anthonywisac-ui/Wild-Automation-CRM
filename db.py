@@ -75,6 +75,7 @@ class User(Base):
     minimax_api_key = Column(String, default="")
     anthropic_api_key = Column(String, default="")
     openrouter_api_key = Column(String, default="")
+    openrouter_model = Column(String, default="nousresearch/hermes-3-llama-3.1-405b:free")
     default_voice = Column(String, default="Alloy")
     default_first_message = Column(String, default="Hello, how can I help you?")
 
@@ -305,6 +306,15 @@ class SaleRecord(Base):
     payment_method = Column(String, default="")
     car_number = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+class BotPlugin(Base):
+    __tablename__ = "bot_plugins"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    plugin_name = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True)
+    config_json = Column(Text, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class CustomerProfile(Base):
     __tablename__ = "customer_profiles"
