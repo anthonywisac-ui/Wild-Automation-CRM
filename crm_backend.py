@@ -151,6 +151,7 @@ class UserConfigSave(BaseModel):
     minimax_api_key: Optional[str] = ""
     anthropic_api_key: Optional[str] = ""
     openrouter_api_key: Optional[str] = ""
+    openrouter_model: Optional[str] = "nousresearch/hermes-3-llama-3.1-405b:free"
     default_voice: Optional[str] = "Alloy"
     default_first_message: Optional[str] = "Hello, how can I help you?"
 
@@ -541,6 +542,7 @@ def get_my_config(current_user: User = Depends(get_current_user)):
         "minimax_api_key": mask_sensitive(current_user.minimax_api_key),
         "anthropic_api_key": mask_sensitive(current_user.anthropic_api_key),
         "openrouter_api_key": mask_sensitive(current_user.openrouter_api_key),
+        "openrouter_model": current_user.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free",
         "default_voice": current_user.default_voice or "Alloy",
         "default_first_message": current_user.default_first_message or "Hello!"
     }
@@ -554,6 +556,7 @@ def save_config(config: UserConfigSave, current_user: User = Depends(get_current
     current_user.minimax_api_key = config.minimax_api_key
     current_user.anthropic_api_key = config.anthropic_api_key
     current_user.openrouter_api_key = config.openrouter_api_key
+    current_user.openrouter_model = config.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free"
     current_user.default_voice = config.default_voice
     current_user.default_first_message = config.default_first_message
     db.commit()
@@ -683,7 +686,8 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
         elif provider == "anthropic":
             reply = await call_anthropic_api(messages, api_key)
         elif provider == "openrouter":
-            reply = await call_openrouter_api(messages, api_key)
+            or_model = current_user.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free"
+            reply = await call_openrouter_api(messages, api_key, model=or_model)
         else:
             reply = await call_groq_api(messages, api_key)
         return {"reply": reply}

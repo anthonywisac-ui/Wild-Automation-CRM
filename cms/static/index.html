@@ -539,6 +539,16 @@
                             <div id="openrouterKeySection">
                                 <label class="text-xs text-gray-400">OpenRouter Key</label>
                                 <input type="password" id="openrouterApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                                <label class="text-xs text-gray-400 mt-2 block">OpenRouter Model</label>
+                                <select id="openrouterModel" class="w-full bg-gray-700 p-2 rounded-lg mt-1 text-white">
+                                    <option value="nousresearch/hermes-3-llama-3.1-405b:free">Hermes 3 – Llama 3.1 405B (Free) ⭐ Recommended</option>
+                                    <option value="minimax/minimax-m1:extended">MiniMax M1 Extended (Free) – Multilingual</option>
+                                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                                    <option value="openai/gpt-4o">GPT-4o</option>
+                                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (via OpenRouter)</option>
+                                    <option value="custom">Custom model…</option>
+                                </select>
+                                <input type="text" id="openrouterModelCustom" placeholder="e.g. minimax/minimax-m2.5:free" class="w-full bg-gray-700 p-2 rounded-lg mt-1 hidden">
                             </div>
                             <button onclick="saveAiConfig()" class="w-full bg-green-600 p-2 rounded-lg font-bold mt-4">Update AI Config</button>
                             <button onclick="testManagerPing()" class="w-full bg-blue-600 p-2 rounded-lg font-bold mt-2">📱 Test Manager Notification</button>
@@ -1617,8 +1627,22 @@
             document.getElementById('groqApiKey').value = cfg.groq_api_key||'';
             document.getElementById('anthropicApiKey').value = cfg.anthropic_api_key||'';
             document.getElementById('openrouterApiKey').value = cfg.openrouter_api_key||'';
+            const savedModel = cfg.openrouter_model || 'nousresearch/hermes-3-llama-3.1-405b:free';
+            const modelSel = document.getElementById('openrouterModel');
+            const knownOpts = Array.from(modelSel.options).map(o=>o.value);
+            if (knownOpts.includes(savedModel)) {
+                modelSel.value = savedModel;
+            } else {
+                modelSel.value = 'custom';
+                document.getElementById('openrouterModelCustom').value = savedModel;
+                document.getElementById('openrouterModelCustom').classList.remove('hidden');
+            }
         } catch(e) {}
     }
+    document.getElementById('openrouterModel').addEventListener('change', function() {
+        const custom = document.getElementById('openrouterModelCustom');
+        if (this.value === 'custom') { custom.classList.remove('hidden'); } else { custom.classList.add('hidden'); }
+    });
     async function testManagerPing() {
         const el = document.getElementById('managerPingResult');
         el.classList.remove('hidden');
@@ -1644,8 +1668,10 @@
         try {
             const anthropic = document.getElementById('anthropicApiKey').value;
             const openrouter = document.getElementById('openrouterApiKey').value;
+            const orModelSel = document.getElementById('openrouterModel').value;
+            const orModel = orModelSel === 'custom' ? document.getElementById('openrouterModelCustom').value : orModelSel;
             await apiCall('/api/crm/settings/save-config','POST',{
-                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic, openrouter_api_key:openrouter
+                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic, openrouter_api_key:openrouter, openrouter_model:orModel
             });
             alert('✅ AI config saved!');
         } catch(e) { alert(e.message); }

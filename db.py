@@ -75,6 +75,7 @@ class User(Base):
     minimax_api_key = Column(String, default="")
     anthropic_api_key = Column(String, default="")
     openrouter_api_key = Column(String, default="")
+    openrouter_model = Column(String, default="nousresearch/hermes-3-llama-3.1-405b:free")
     default_voice = Column(String, default="Alloy")
     default_first_message = Column(String, default="Hello, how can I help you?")
 
