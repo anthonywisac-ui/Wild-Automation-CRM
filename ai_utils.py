@@ -59,6 +59,7 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
             elif provider == "openai": api_key = owner.openai_api_key
             elif provider == "minimax": api_key = owner.minimax_api_key
             elif provider == "anthropic": api_key = owner.anthropic_api_key
+            elif provider == "openrouter": api_key = owner.openrouter_api_key
 
     # Fallback to Global Env keys if still empty
     if not api_key:
@@ -67,6 +68,7 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
         elif provider == "openai": api_key = os.getenv("OPENAI_API_KEY")
         elif provider == "minimax": api_key = os.getenv("MINIMAX_API_KEY")
         elif provider == "anthropic": api_key = os.getenv("ANTHROPIC_API_KEY")
+        elif provider == "openrouter": api_key = os.getenv("OPENROUTER_API_KEY")
 
     if not api_key:
         return "System configuration error: Missing API Key."
@@ -84,6 +86,8 @@ async def get_ai_response(sender: str, user_message: str, bot: WhatsappBot, db: 
             return await call_minimax_api(messages, api_key)
         elif provider == "anthropic":
             return await call_anthropic_api(messages, api_key)
+        elif provider == "openrouter":
+            return await call_openrouter_api(messages, api_key)
     except Exception as e:
         logger.error(f"AI Call failed ({provider}): {str(e)}")
         return "I'm having trouble processing that right now. Please try again in a moment."
@@ -122,6 +126,17 @@ async def call_openai_api(messages, api_key):
         url,
         headers={"Authorization": f"Bearer {api_key}"},
         json={"model": "gpt-3.5-turbo", "messages": messages}
+    ) as res:
+        data = await res.json()
+        return data["choices"][0]["message"]["content"]
+
+async def call_openrouter_api(messages, api_key, model="openai/gpt-4o-mini"):
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    session = await SharedSession.get_session()
+    async with session.post(
+        url,
+        headers={"Authorization": f"Bearer {api_key}", "HTTP-Referer": "https://wildautomation.app"},
+        json={"model": model, "messages": messages}
     ) as res:
         data = await res.json()
         return data["choices"][0]["message"]["content"]

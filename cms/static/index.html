@@ -522,6 +522,7 @@
                                 <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="gemini" class="mr-2"> Gemini</label>
                                 <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="groq" class="mr-2"> Groq</label>
                                 <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="anthropic" class="mr-2"> Anthropic (Opus)</label>
+                                <label class="flex-1 p-3 bg-gray-700 rounded-lg border border-gray-600 cursor-pointer"><input type="radio" name="aiProvider" value="openrouter" class="mr-2"> OpenRouter</label>
                             </div>
                             <div id="geminiKeySection">
                                 <label class="text-xs text-gray-400">Gemini Key</label>
@@ -535,7 +536,13 @@
                                 <label class="text-xs text-gray-400">Anthropic Key</label>
                                 <input type="password" id="anthropicApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
                             </div>
+                            <div id="openrouterKeySection">
+                                <label class="text-xs text-gray-400">OpenRouter Key</label>
+                                <input type="password" id="openrouterApiKey" class="w-full bg-gray-700 p-2 rounded-lg mt-1">
+                            </div>
                             <button onclick="saveAiConfig()" class="w-full bg-green-600 p-2 rounded-lg font-bold mt-4">Update AI Config</button>
+                            <button onclick="testManagerPing()" class="w-full bg-blue-600 p-2 rounded-lg font-bold mt-2">📱 Test Manager Notification</button>
+                            <div id="managerPingResult" class="mt-2 text-xs hidden"></div>
                         </div>
                     </div>
                     <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
@@ -1609,7 +1616,26 @@
             document.getElementById('geminiApiKey').value = cfg.gemini_api_key||'';
             document.getElementById('groqApiKey').value = cfg.groq_api_key||'';
             document.getElementById('anthropicApiKey').value = cfg.anthropic_api_key||'';
+            document.getElementById('openrouterApiKey').value = cfg.openrouter_api_key||'';
         } catch(e) {}
+    }
+    async function testManagerPing() {
+        const el = document.getElementById('managerPingResult');
+        el.classList.remove('hidden');
+        el.textContent = '⏳ Sending...';
+        try {
+            const res = await apiCall('/api/crm/test/manager-ping','POST');
+            if (res.ok) {
+                el.className = 'mt-2 text-xs text-green-400';
+                el.textContent = `✅ Sent to ${res.to} via phone_id ${res.phone_id}`;
+            } else {
+                el.className = 'mt-2 text-xs text-red-400';
+                el.textContent = `❌ Failed (${res.status}): ${JSON.stringify(res.response)}`;
+            }
+        } catch(e) {
+            el.className = 'mt-2 text-xs text-red-400';
+            el.textContent = `❌ Error: ${e.message}`;
+        }
     }
     async function saveAiConfig() {
         const provider = document.querySelector('input[name="aiProvider"]:checked')?.value || 'groq';
@@ -1617,8 +1643,9 @@
         const groq = document.getElementById('groqApiKey').value;
         try {
             const anthropic = document.getElementById('anthropicApiKey').value;
+            const openrouter = document.getElementById('openrouterApiKey').value;
             await apiCall('/api/crm/settings/save-config','POST',{
-                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic
+                ai_provider:provider, gemini_api_key:gemini, groq_api_key:groq, openai_api_key:'', anthropic_api_key:anthropic, openrouter_api_key:openrouter
             });
             alert('✅ AI config saved!');
         } catch(e) { alert(e.message); }
