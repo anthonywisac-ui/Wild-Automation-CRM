@@ -582,6 +582,7 @@
             <div id="tab-bot_create" class="tab-content hidden p-6">
                 <h1 class="text-2xl font-bold mb-6">Bot Creation Wizard</h1>
                 <div class="bg-gray-800 rounded-xl p-8 max-w-2xl mx-auto border border-gray-700">
+                    <!-- Step 1: Identity -->
                     <div id="wizardStep1">
                         <h2 class="text-lg font-bold mb-4 text-green-400">Step 1: Identity & Niche</h2>
                         <div class="space-y-4">
@@ -594,12 +595,36 @@
                                     <option value="appointment">Appointment (Scheduling)</option>
                                 </select>
                             </div>
-                            <button onclick="document.getElementById('wizardStep1').classList.add('hidden'); document.getElementById('wizardStep2').classList.remove('hidden');" class="w-full bg-blue-600 p-4 rounded-xl font-bold mt-4">Next: Meta API Config →</button>
+                            <button onclick="wizardGoStep('wizardStep1','wizardStepProvider')" class="w-full bg-blue-600 p-4 rounded-xl font-bold mt-4">Next: Choose WhatsApp Method →</button>
                         </div>
                     </div>
 
+                    <!-- Step 1.5: Provider selection -->
+                    <div id="wizardStepProvider" class="hidden">
+                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 2: WhatsApp Connection</h2>
+                        <div class="space-y-4">
+                            <p class="text-gray-400 text-sm">How will this bot connect to WhatsApp?</p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <button onclick="wizardSelectProvider('meta')" id="providerMeta"
+                                    class="p-5 rounded-xl border-2 border-gray-600 hover:border-blue-500 text-left transition-all">
+                                    <div class="text-2xl mb-2">📱</div>
+                                    <div class="font-bold">Meta Business API</div>
+                                    <div class="text-xs text-gray-400 mt-1">New dedicated number. Official Meta Cloud API.</div>
+                                </button>
+                                <button onclick="wizardSelectProvider('wwebjs')" id="providerWwebjs"
+                                    class="p-5 rounded-xl border-2 border-gray-600 hover:border-green-500 text-left transition-all">
+                                    <div class="text-2xl mb-2">📷</div>
+                                    <div class="font-bold">Own Number (QR Scan)</div>
+                                    <div class="text-xs text-gray-400 mt-1">Use your existing WhatsApp number. Scan QR like WhatsApp Web.</div>
+                                </button>
+                            </div>
+                            <button onclick="wizardGoStep('wizardStepProvider','wizardStep1')" class="w-full bg-gray-600 p-3 rounded-xl font-bold">Back</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 2A: Meta API -->
                     <div id="wizardStep2" class="hidden">
-                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 2: WhatsApp Meta API</h2>
+                        <h2 class="text-lg font-bold mb-4 text-green-400">Step 3: WhatsApp Meta API</h2>
                         <div class="space-y-4">
                             <div><label class="block text-sm font-medium mb-1">Meta Access Token</label><input type="password" id="botNewToken" placeholder="EAA..." class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
                             <div class="grid grid-cols-2 gap-4">
@@ -607,8 +632,31 @@
                                 <div><label class="block text-sm font-medium mb-1">WABA ID</label><input type="text" id="botNewWabaId" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
                             </div>
                             <div class="flex gap-4 pt-6">
-                                <button onclick="document.getElementById('wizardStep2').classList.add('hidden'); document.getElementById('wizardStep1').classList.remove('hidden');" class="flex-1 bg-gray-600 p-4 rounded-xl font-bold">Back</button>
+                                <button onclick="wizardGoStep('wizardStep2','wizardStepProvider')" class="flex-1 bg-gray-600 p-4 rounded-xl font-bold">Back</button>
                                 <button onclick="deployBotWizard()" class="flex-[2] bg-green-600 p-4 rounded-xl font-bold text-lg hover:bg-green-700">Deploy Instance</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2B: wwebjs / QR Scan -->
+                    <div id="wizardStepQR" class="hidden">
+                        <h2 class="text-lg font-bold mb-2 text-green-400">Step 3: Scan QR Code</h2>
+                        <div id="qrSetupForm" class="space-y-4">
+                            <p class="text-gray-400 text-sm">No Meta credentials needed. Just scan with your phone.</p>
+                            <div><label class="block text-sm font-medium mb-1">Business Name</label><input type="text" id="botNewBusinessName" placeholder="e.g. Pizza King Restaurant" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div><label class="block text-sm font-medium mb-1">Manager WhatsApp Number</label><input type="text" id="botNewManagerNumber" placeholder="923001234567" class="w-full bg-gray-700 p-3 rounded-xl border border-gray-600"></div>
+                            <div class="flex gap-4 pt-4">
+                                <button onclick="wizardGoStep('wizardStepQR','wizardStepProvider')" class="flex-1 bg-gray-600 p-4 rounded-xl font-bold">Back</button>
+                                <button onclick="deployWwebjsBot()" class="flex-[2] bg-green-600 p-4 rounded-xl font-bold text-lg hover:bg-green-700">Create & Get QR →</button>
+                            </div>
+                        </div>
+                        <div id="qrCodeArea" class="hidden text-center space-y-4 mt-4">
+                            <p class="text-yellow-400 font-bold" id="qrStatusText">⏳ Starting session…</p>
+                            <div id="qrCanvas" class="flex justify-center"></div>
+                            <p class="text-gray-400 text-xs">Open WhatsApp → Linked Devices → Link a Device → Scan this QR</p>
+                            <div id="qrConnected" class="hidden">
+                                <p class="text-green-400 font-bold text-lg">✅ Connected! Bot is live.</p>
+                                <button onclick="showTab('bot_list')" class="mt-4 w-full bg-green-600 p-3 rounded-xl font-bold">View All Bots →</button>
                             </div>
                         </div>
                     </div>
@@ -1406,6 +1454,23 @@
         trackActivity('UI_NAV', `Navigated to: ${tabName}`);
     }
 
+    function wizardGoStep(hideId, showId) {
+        document.getElementById(hideId).classList.add('hidden');
+        document.getElementById(showId).classList.remove('hidden');
+    }
+
+    function wizardSelectProvider(provider) {
+        document.getElementById('providerMeta').classList.remove('border-blue-500','border-green-500');
+        document.getElementById('providerWwebjs').classList.remove('border-blue-500','border-green-500');
+        if (provider === 'meta') {
+            document.getElementById('providerMeta').classList.add('border-blue-500');
+            wizardGoStep('wizardStepProvider', 'wizardStep2');
+        } else {
+            document.getElementById('providerWwebjs').classList.add('border-green-500');
+            wizardGoStep('wizardStepProvider', 'wizardStepQR');
+        }
+    }
+
     async function deployBotWizard() {
         const payload = {
             name: document.getElementById('botNewName').value.trim(),
@@ -1415,15 +1480,61 @@
             waba_id: document.getElementById('botNewWabaId').value.trim(),
             verify_token: 'WHATSAPP_TOKEN_' + Math.random().toString(36).substring(7).toUpperCase()
         };
-        
         if (!payload.name || !payload.meta_token) { alert('Name and Token are required'); return; }
-        
         try {
             await apiCall('/api/crm/bots/whatsapp', 'POST', payload);
             alert('🚀 Bot Deployed Successfully!');
-            document.getElementById('wizardStep2').classList.add('hidden');
-            document.getElementById('wizardStep1').classList.remove('hidden');
+            wizardGoStep('wizardStep2', 'wizardStep1');
             showTab('bot_list');
+        } catch(e) { alert(e.message); }
+    }
+
+    let _qrPollTimer = null;
+
+    async function deployWwebjsBot() {
+        const name    = document.getElementById('botNewName').value.trim();
+        const type    = document.getElementById('botNewType').value;
+        const biz     = document.getElementById('botNewBusinessName').value.trim();
+        const manager = document.getElementById('botNewManagerNumber').value.trim();
+        if (!name) { alert('Bot name is required'); return; }
+
+        try {
+            // Create bot record
+            const res = await apiCall('/cms/bots/wwebjs/create', 'POST', {
+                name, bot_type: type, business_name: biz, manager_number: manager
+            });
+            const botId = res.bot_id;
+
+            // Show QR area
+            document.getElementById('qrSetupForm').classList.add('hidden');
+            document.getElementById('qrCodeArea').classList.remove('hidden');
+            document.getElementById('qrStatusText').textContent = '⏳ Starting session…';
+
+            // Start session
+            await apiCall(`/cms/bots/wwebjs/${botId}/start-session`, 'POST', {});
+
+            // Poll for QR
+            _qrPollTimer = setInterval(async () => {
+                try {
+                    const qrRes = await apiCall(`/cms/bots/wwebjs/${botId}/qr`, 'GET');
+                    if (qrRes.status === 'CONNECTED') {
+                        clearInterval(_qrPollTimer);
+                        document.getElementById('qrStatusText').textContent = '';
+                        document.getElementById('qrCanvas').innerHTML = '';
+                        document.getElementById('qrConnected').classList.remove('hidden');
+                        return;
+                    }
+                    if (qrRes.qr) {
+                        document.getElementById('qrStatusText').textContent = '📷 Scan with WhatsApp';
+                        // Render QR as text fallback (qrcode.js not loaded — use data URI via API)
+                        document.getElementById('qrCanvas').innerHTML =
+                            `<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrRes.qr)}" class="rounded-xl">`;
+                    } else {
+                        document.getElementById('qrStatusText').textContent = '⏳ Waiting for QR… (' + (qrRes.status||'') + ')';
+                    }
+                } catch(e) { /* retry next tick */ }
+            }, 3000);
+
         } catch(e) { alert(e.message); }
     }
 
