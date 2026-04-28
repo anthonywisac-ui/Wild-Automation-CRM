@@ -18,7 +18,8 @@ const fs                     = require('fs');
 
 // ── Config from env ──────────────────────────────────────────────────────────
 const SESSIONS_DIR       = process.env.SESSIONS_DIR      || path.join(__dirname, 'sessions');
-const FASTAPI_WEBHOOK    = process.env.FASTAPI_WEBHOOK_URL;   // e.g. http://localhost:8000/wwebjs/webhook
+const FASTAPI_WEBHOOK    = process.env.FASTAPI_WEBHOOK_URL
+                           || `http://localhost:${process.env.PORT || 8000}/wwebjs/webhook`;
 const BRIDGE_SECRET      = process.env.BRIDGE_INTERNAL_SECRET || '';
 const MAX_RECONNECT_MS   = 5 * 60 * 1000;  // cap reconnect delay at 5 min
 const WWEBJS_CACHE_PATH  = path.join(SESSIONS_DIR, '.wwebjs_cache');
