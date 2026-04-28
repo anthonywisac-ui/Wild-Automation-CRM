@@ -25,9 +25,6 @@ RUN cd wa-bridge && npm install --omit=dev
 # Copy all app code
 COPY . .
 
-# Session storage volume
-VOLUME ["/app/wa-bridge/sessions"]
-
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
