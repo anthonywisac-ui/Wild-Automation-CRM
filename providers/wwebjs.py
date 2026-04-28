@@ -214,10 +214,17 @@ async def bridge_start_session(session_name: str, bridge_url: str = DEFAULT_BRID
     headers = {"Content-Type": "application/json"}
     if BRIDGE_API_KEY:
         headers["X-Bridge-Key"] = BRIDGE_API_KEY
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers,
-                                timeout=aiohttp.ClientTimeout(total=30)) as resp:
-            return await resp.json()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers,
+                                    timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                return await resp.json()
+    except aiohttp.ClientConnectorError as exc:
+        raise RuntimeError(
+            f"wa-bridge is not reachable at {bridge_url}. "
+            "It may still be starting up — wait 30s and try again. "
+            f"Detail: {exc}"
+        ) from exc
 
 
 async def bridge_get_qr(session_name: str, bridge_url: str = DEFAULT_BRIDGE_URL) -> dict:

@@ -1,19 +1,39 @@
 #!/bin/bash
 
-# wa-bridge uses its own port (3000), never Railway's PORT variable
-cd /app/wa-bridge
-BRIDGE_PORT=3000 node server.js &
-BRIDGE_PID=$!
-echo "[start] wa-bridge started (PID $BRIDGE_PID) on port 3000"
+# ── Start wa-bridge ────────────────────────────────────────────────────────────
+start_bridge() {
+    cd /app/wa-bridge
+    BRIDGE_PORT=3000 node server.js &
+    echo $! > /tmp/wa-bridge.pid
+    cd /app
+    echo "[start] wa-bridge started (PID $(cat /tmp/wa-bridge.pid)) on port 3000"
+}
 
-sleep 2
+start_bridge
 
-if kill -0 $BRIDGE_PID 2>/dev/null; then
-    echo "[start] wa-bridge running OK"
-else
-    echo "[start] WARNING: wa-bridge exited"
-fi
+# ── Wait until bridge health endpoint responds (up to 30s) ────────────────────
+echo "[start] Waiting for wa-bridge to be ready..."
+for i in $(seq 1 30); do
+    if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+        echo "[start] wa-bridge ready (${i}s)"
+        break
+    fi
+    sleep 1
+done
 
-# FastAPI uses Railway's PORT
-cd /app
+# ── Watchdog: restart wa-bridge if it crashes ──────────────────────────────────
+(
+    while true; do
+        sleep 15
+        PID=$(cat /tmp/wa-bridge.pid 2>/dev/null)
+        if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
+            echo "[watchdog] wa-bridge down, restarting..."
+            cd /app/wa-bridge && BRIDGE_PORT=3000 node server.js &
+            echo $! > /tmp/wa-bridge.pid
+            echo "[watchdog] wa-bridge restarted (PID $(cat /tmp/wa-bridge.pid))"
+        fi
+    done
+) &
+
+# ── Start FastAPI ──────────────────────────────────────────────────────────────
 exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
