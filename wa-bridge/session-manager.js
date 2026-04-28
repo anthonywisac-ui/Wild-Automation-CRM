@@ -11,10 +11,17 @@
 
 'use strict';
 
-const { Client, LocalAuth }  = require('whatsapp-web.js');
-const axios                  = require('axios');
-const path                   = require('path');
-const fs                     = require('fs');
+// whatsapp-web.js loaded lazily — only when first session is created.
+// This lets the Express server start even if Chromium is not yet ready.
+let _wwebjs = null;
+function getWwebjs() {
+    if (!_wwebjs) _wwebjs = require('whatsapp-web.js');
+    return _wwebjs;
+}
+
+const axios = require('axios');
+const path  = require('path');
+const fs    = require('fs');
 
 // ── Config from env ──────────────────────────────────────────────────────────
 const SESSIONS_DIR       = process.env.SESSIONS_DIR      || path.join(__dirname, 'sessions');
@@ -74,6 +81,7 @@ class SessionManager {
         this._statuses.set(name, 'STARTING');
         this._qrCodes.delete(name);
 
+        const { Client, LocalAuth } = getWwebjs();
         const client = new Client({
             authStrategy: new LocalAuth({
                 clientId: name,
