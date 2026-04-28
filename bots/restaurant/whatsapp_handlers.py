@@ -13,10 +13,17 @@ def _bot_name(bot):
     return (bot.business_name or bot.name) if bot else "Restaurant"
 
 async def _send_request(payload, bot=None):
-    token = bot.meta_token if bot and bot.meta_token else WHATSAPP_TOKEN
+    # wwebjs path: convert Meta payload → numbered text, send via local bridge
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        from providers.wwebjs import WwebjsProvider
+        await WwebjsProvider(bot).dispatch_payload(payload)
+        return None
+
+    # Meta Cloud API path (unchanged)
+    token    = bot.meta_token    if bot and bot.meta_token    else WHATSAPP_TOKEN
     phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
-    url = f"https://graph.facebook.com/{API_VERSION}/{phone_id}/messages"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url      = f"https://graph.facebook.com/{API_VERSION}/{phone_id}/messages"
+    headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
         session = await SharedSession.get_session()
         async with session.post(url, json=payload, headers=headers) as r:

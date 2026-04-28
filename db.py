@@ -194,6 +194,15 @@ class WhatsappBot(Base):
     status = Column(String, default="active") # Bug #7: monitoring status
     last_health_check = Column(DateTime, nullable=True)
 
+    # ── Dual-provider fields ──────────────────────────────────────────────────
+    # provider: "meta" (default, Meta Cloud API) | "wwebjs" (own number via QR)
+    provider          = Column(String, default="meta")
+    # wwebjs_session: session name in wa-bridge, e.g. "bot_7"
+    wwebjs_session    = Column(String, nullable=True)
+    # wwebjs_bridge_url: URL of the wa-bridge service for this bot.
+    # If blank, falls back to WWEBJS_BRIDGE_URL env var.
+    wwebjs_bridge_url = Column(String, nullable=True)
+
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
     id = Column(Integer, primary_key=True, index=True)
@@ -221,6 +230,7 @@ class Order(Base):
     tax_amount = Column(Float, default=0.0)
     delivery_amount = Column(Float, default=0.0)
     grand_total = Column(Float, default=0.0)
+    delivery_type = Column(String, default="pickup")
     status = Column(String, default="Pending")
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -395,6 +405,7 @@ def save_new_order(db: Session, owner_id: int, customer_phone: str, session_data
         tax_amount=tax_amount,
         delivery_amount=delivery_charge,
         grand_total=grand_total,
+        delivery_type=session_data.get("delivery_type", "pickup"),
         status="Pending"
     )
     db.add(new_order)
@@ -450,4 +461,24 @@ def log_bot_event(bot_id: int, event_type: str, details: str = "", customer_phon
 
 def migrate_db():
     Base.metadata.create_all(bind=engine)
+    # Add new columns to existing tables without dropping them
+    with engine.connect() as conn:
+        inspector = inspect(engine)
+        for table_name, columns in [
+            ("orders", ["delivery_type TEXT DEFAULT 'pickup'"]),
+            ("whatsapp_bots", [
+                "provider TEXT DEFAULT 'meta'",
+                "wwebjs_session TEXT",
+                "wwebjs_bridge_url TEXT",
+            ]),
+        ]:
+            existing_cols = {c["name"] for c in inspector.get_columns(table_name)} if table_name in inspector.get_table_names() else set()
+            for col_def in columns:
+                col_name = col_def.split()[0]
+                if col_name not in existing_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_def}"))
+                        conn.commit()
+                    except Exception:
+                        pass
     print("Database Migrated Successfully.")
