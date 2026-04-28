@@ -141,7 +141,7 @@ app.use((_req, res) => {
 });
 
 // ── Start server ──────────────────────────────────────────────────────────────
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.BRIDGE_PORT || '3000', 10);
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`[WA-Bridge] Running on port ${PORT}`);
     console.log(`[WA-Bridge] API key protection: ${BRIDGE_API_KEY ? 'ENABLED' : 'DISABLED (set BRIDGE_API_KEY)'}`);
