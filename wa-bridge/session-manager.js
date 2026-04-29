@@ -93,11 +93,12 @@ class SessionManager {
             }),
             puppeteer: {
                 headless: true,
+                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
                 args: PUPPETEER_ARGS,
             },
             webVersionCache: {
-                type: 'local',
-                path: WWEBJS_CACHE_PATH,
+                type: 'remote',
+                remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/',
             },
         });
 

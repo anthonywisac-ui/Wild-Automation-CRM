@@ -26,6 +26,16 @@
 
 'use strict';
 
+// ── Catch any unhandled crashes so Railway logs show the reason ───────────────
+process.on('uncaughtException', (err) => {
+    console.error('[WA-Bridge] UNCAUGHT EXCEPTION:', err.message);
+    console.error(err.stack);
+    process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[WA-Bridge] UNHANDLED REJECTION:', reason);
+});
+
 const express          = require('express');
 const { SessionManager } = require('./session-manager');
 
