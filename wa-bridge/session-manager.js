@@ -31,9 +31,13 @@ const BRIDGE_SECRET      = process.env.BRIDGE_INTERNAL_SECRET || '';
 const MAX_RECONNECT_MS   = 5 * 60 * 1000;  // cap reconnect delay at 5 min
 const WWEBJS_CACHE_PATH  = path.join(SESSIONS_DIR, '.wwebjs_cache');
 
-// Ensure dirs exist
+// Ensure dirs exist — wrapped in try/catch so a bad volume mount won't crash the server
 [SESSIONS_DIR, WWEBJS_CACHE_PATH].forEach(d => {
-    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    try {
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+    } catch (err) {
+        console.error(`[WA-Bridge] WARNING: could not create dir ${d}: ${err.message}`);
+    }
 });
 
 // Puppeteer args that work inside Docker / low-memory VPS
