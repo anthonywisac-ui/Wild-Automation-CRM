@@ -102,6 +102,8 @@ class SessionManager {
             },
         });
 
+        this._clearChromiumLocks(name);
+
         this._clients.set(name, client);
         this._attachEvents(name, client);
 
@@ -260,6 +262,24 @@ class SessionManager {
         }, capped);
 
         this._reconnectTimers.set(name, timer);
+    }
+
+    _clearChromiumLocks(name) {
+        // Chromium leaves SingletonLock/Cookie/Socket on the old container's volume mount.
+        // New container sees them, thinks another process owns the profile, and refuses to start.
+        const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+        const profileDir = path.join(SESSIONS_DIR, `session-${name}`);
+        for (const f of lockFiles) {
+            const p = path.join(profileDir, f);
+            try {
+                if (fs.existsSync(p)) {
+                    fs.rmSync(p, { force: true });
+                    console.log(`[WA-Bridge] Removed stale lock: ${f} for "${name}"`);
+                }
+            } catch (err) {
+                console.warn(`[WA-Bridge] Could not remove ${f}: ${err.message}`);
+            }
+        }
     }
 
     async _destroyClient(name, deleteFiles) {
