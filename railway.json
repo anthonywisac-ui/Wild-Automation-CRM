@@ -1,6 +1,7 @@
 {
   "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile" },
   "deploy": {
+    "startCommand": "/start.sh",
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE"
   }
