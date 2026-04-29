@@ -460,6 +460,68 @@ async def try_add_by_quantity(sender, session, text_lower, lang, bot=None):
     return True
 
 
+# ========== Manager flow handler ==========
+async def handle_manager_flow(sender, text, is_button=False, bot=None, db_session=None):
+    """Handle messages/buttons from the restaurant manager."""
+    try:
+        # MGR_{order_id}_{ACTION} buttons sent from send_manager_action_list
+        if text.startswith("MGR_"):
+            parts = text.split("_", 2)
+            if len(parts) < 3:
+                await send_text_message(sender, "❓ Unknown action.", bot=bot)
+                return
+            order_id = parts[1]
+            action = parts[2]
+
+            order_data = saved_orders.get(order_id, {})
+            customer_number = order_data.get("sender", "")
+
+            if action == "READY":
+                if customer_number:
+                    await send_text_message(
+                        customer_number,
+                        f"✅ *Your order #{order_id} is ready!*\n\n"
+                        f"🏪 Please come pick it up — it's hot and waiting for you! 😊",
+                        bot=bot
+                    )
+                await send_text_message(sender, f"✅ Customer notified: order #{order_id} is ready.", bot=bot)
+
+            elif action == "OUTFORDELIVERY":
+                if customer_number:
+                    await send_text_message(
+                        customer_number,
+                        f"🚚 *Your order #{order_id} is on the way!*\n\n"
+                        f"Our driver is heading to you. Should arrive in 15-30 minutes. 😊",
+                        bot=bot
+                    )
+                await send_text_message(sender, f"🚚 Customer notified: order #{order_id} out for delivery.", bot=bot)
+
+            elif action == "CANCELLED":
+                if customer_number:
+                    await send_text_message(
+                        customer_number,
+                        f"❌ *We're sorry — order #{order_id} has been cancelled.*\n\n"
+                        f"Please contact us if you have any questions. We apologise for the inconvenience. 🙏",
+                        bot=bot
+                    )
+                await send_text_message(sender, f"❌ Customer notified: order #{order_id} cancelled.", bot=bot)
+
+            else:
+                await send_text_message(sender, f"❓ Unknown action '{action}' for order #{order_id}.", bot=bot)
+            return
+
+        # Free-text from manager → acknowledge
+        await send_text_message(
+            sender,
+            "👋 *Manager Panel*\n\nUse the action buttons sent with each order to update customers.\n\n"
+            "Actions available:\n✅ Ready\n🚚 Out for Delivery\n❌ Cancelled",
+            bot=bot
+        )
+    except Exception as e:
+        print(f"MANAGER FLOW ERROR: {e}")
+        traceback.print_exc()
+
+
 # ========== Main flow handlers ==========
 async def handle_flow(sender, text, is_button=False, bot=None, db_session=None):
     session = get_session(sender, bot, db_session=db_session)
