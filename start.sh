@@ -1,5 +1,19 @@
 #!/bin/bash
 
+# ── Set FastAPI webhook URL so wa-bridge can forward messages ──────────────────
+export FASTAPI_WEBHOOK_URL="http://localhost:${PORT:-8000}/wwebjs/webhook"
+echo "[start] FastAPI webhook URL: ${FASTAPI_WEBHOOK_URL}"
+
+# ── Delete stale Chromium SingletonLock from previous container ────────────────
+# (volume persists lock files; new container gets Code 21 crash without this)
+echo "[start] Clearing stale Chromium locks..."
+for lock_name in SingletonLock SingletonCookie SingletonSocket; do
+    find /app/wa-bridge/sessions -name "$lock_name" 2>/dev/null | while IFS= read -r f; do
+        rm -f "$f"
+        echo "[start] Removed: $f"
+    done
+done
+
 # ── Start wa-bridge (stdout/stderr go directly to Railway logs) ────────────────
 start_bridge() {
     cd /app/wa-bridge
