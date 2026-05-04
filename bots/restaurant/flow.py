@@ -29,11 +29,12 @@ from .whatsapp_handlers import (
     send_order_confirmed, send_quick_combo_upsell, send_quick_upsell,
     send_dessert_upsell, send_min_order_warning, send_returning_customer_menu,
     send_repeat_order_confirm, send_manager_action_list, send_list_message,
+    send_manager_report_menu, send_manager_week_menu, send_manager_feature_menu,
     send_reservation_start, send_catalog_message
 )
 from .ai_utils import get_ai_response
 from .stripe_utils import create_stripe_checkout_session
-from db import SessionLocal, WhatsappBot, Reservation, ChatHistory, SaleRecord
+from db import SessionLocal, WhatsappBot, Reservation, Order, ChatHistory
 
 # ========== Upsell Config Helper ==========
 def get_upsell_config(bot):
@@ -63,11 +64,11 @@ def get_deal_rules(bot):
     """
     defaults = {
         "DL1": {"requires": "burger_in_cart"},
-        "DL2": {"picks": ["fastfood"]},
+        "DL2": {"picks": ["burger"]},
         "DL3": {"picks": ["pizza"]},
-        "DL4": {"picks": ["pizza", "pizza"]},
+        "DL4": {"picks": ["burger"]},  # Updated to Burger choice as requested
         "DL5": {"picks": ["2sides"]},
-        "DL6": {"picks": ["fastfood", "fastfood", "pizza"]},
+        "DL6": {"picks": []},
     }
     if not bot: return defaults
     try:
@@ -84,22 +85,16 @@ SIDE_CHOICES = {
     "SALAD": "Caesar Salad",
 }
 
-# Dynamic: any CAT_{KEY} maps to that menu key (no hardcoded list needed)
+CAT_MAP = {
+    "CAT_DEALS": "deals", "CAT_FASTFOOD": "fastfood", "CAT_PIZZA": "pizza",
+    "CAT_BBQ": "bbq", "CAT_FISH": "fish", "CAT_SIDES": "sides",
+    "CAT_DRINKS": "drinks", "CAT_DESSERTS": "desserts",
+}
 
 ORDERING_STAGES = {
     "items", "qty_control", "upsell_check", "upsell_combo", "confirm",
     "get_name", "address", "delivery", "payment", "deal_build",
-    "bbq_sides", "repeat_confirm", "car_number",
-    "reservation_date", "reservation_time", "reservation_party",
-}
-
-_RESERVATION_KEYWORDS = {
-    "reservation", "reserve", "book", "book a table", "table reservation",
-    "booking", "dine", "book table"
-}
-_CAR_DELIVERY_KEYWORDS = {
-    "car delivery", "curbside", "car", "bring to car", "to my car",
-    "car pickup", "drive thru", "drive-thru"
+    "bbq_sides", "repeat_confirm",
 }
 
 
@@ -107,38 +102,28 @@ _CAR_DELIVERY_KEYWORDS = {
 async def prompt_deal_pick(sender, session, kind, lang="en", bot=None):
     ctx = session["deal_context"]
     deal_id = ctx["deal_id"]
-    MENU = get_bot_menu(bot_id=bot.id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
 
-    if kind == "2sides":
+    if kind == "burger":
+        cat_key = "fastfood"
+        prompt_key = "choose_burger_deal"
+    elif kind == "pizza":
+        already = sum(1 for p in ctx["picks"] if p.get("item_id", "").startswith("PZ"))
+        cat_key = "pizza"
+        if deal_id == "DL4":
+            prompt_key = "choose_2nd_pizza" if already >= 1 else "choose_2pizzas"
+        else:
+            prompt_key = "choose_pizza_deal"
+    elif kind == "2sides":
         session["stage"] = "bbq_sides"
         ctx["sides_needed"] = 2
         ctx.setdefault("sides", [])
         await prompt_bbq_sides(sender, session, lang, bot=bot)
         return
-
-    # Normalize legacy "burger" to category key
-    if kind == "burger":
-        kind = "fastfood"
-
-    if kind == "fastfood":
-        cat_key = "fastfood"
-        already_burgers = sum(1 for p in ctx["picks"] if p.get("item_id", "").startswith("FF"))
-        prompt_key = "choose_2nd_burger" if already_burgers >= 1 else "choose_burger_deal"
-    elif kind == "pizza":
-        cat_key = "pizza"
-        already = sum(1 for p in ctx["picks"] if p.get("item_id", "").startswith("PZ"))
-        if deal_id == "DL4":
-            prompt_key = "choose_2nd_pizza" if already >= 1 else "choose_2pizzas"
-        else:
-            prompt_key = "choose_pizza_deal"
     else:
-        # Generic: any category key passed directly from frontend deal_rules
-        cat_key = kind
-        prompt_key = "choose_item_deal"
+        return
 
     cat = MENU.get(cat_key, {"name": cat_key.title(), "items": {}})
-    if not cat.get("items"):
-        return
     rows = []
     for item_id, item in cat["items"].items():
         title = truncate_title(f"{item.get('emoji', '🍔')} {item['name']}", 24)
@@ -160,18 +145,9 @@ async def finalize_deal(sender, session, lang="en", bot=None):
     if deal_id == "DL2":
         components += ["Fries", "Soda"]
     elif deal_id == "DL3":
-        components += ["6 Wings", "Soda"]
+        components += ["6 Wings"]
     elif deal_id == "DL4":
         components += ["2 Sodas"]
-    elif deal_id == "DL6":
-        components += ["2 Fries", "4 Sodas"]
-    # Auto-include items defined in deal_rules.includes
-    deal_rules = get_deal_rules(bot)
-    rule = deal_rules.get(deal_id, {})
-    for inc in rule.get("includes", []):
-        name = inc.get("name", inc) if isinstance(inc, dict) else str(inc)
-        if name not in components:
-            components.append(name)
 
     order_entry = {"item": deal_item, "qty": 1, "components": components}
     key = deal_id
@@ -212,7 +188,7 @@ async def prompt_bbq_sides(sender, session, lang="en", bot=None):
 async def finalize_bbq_sides(sender, session, lang="en", bot=None):
     ctx = session["deal_context"]
     sides = ctx.get("sides", [])
-    MENU = get_bot_menu(bot_id=bot.id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
 
     if ctx.get("deal_id") == "DL5":
         deal_item = MENU["deals"]["items"]["DL5"]
@@ -243,7 +219,7 @@ async def finalize_bbq_sides(sender, session, lang="en", bot=None):
         session["deal_context"] = None
         session["stage"] = "menu"
         await send_text_message(sender, "✅ Sides saved! Here's your menu.", bot=bot)
-        await send_main_menu(sender, session["order"], lang, bot=bot)
+        await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
 
 
 # ========== Order status helpers ==========
@@ -320,39 +296,6 @@ async def handle_order_status(sender, session, lang, text, bot=None):
         )
     await send_text_message(sender, msg, bot=bot)
     await notify_manager_status(order_id, sender, bot=bot, reason=f"OVERDUE by {delay} mins — customer waiting")
-
-
-# ========== Sale Record helper ==========
-def _save_sale_record(sender, session, order_id, bot):
-    try:
-        from utils import get_order_total, get_delivery_fee
-        order = session.get("order", {})
-        subtotal = get_order_total(order)
-        tax_rate = bot.tax_rate if bot else 0.08
-        tax = subtotal * tax_rate
-        delivery_type = session.get("delivery_type", "pickup")
-        delivery = get_delivery_fee(subtotal, delivery_type, bot=bot)
-        db_local = SessionLocal()
-        try:
-            rec = SaleRecord(
-                bot_id=bot.id if bot else None,
-                owner_id=bot.owner_id if bot else 1,
-                customer_phone=sender,
-                delivery_type=delivery_type,
-                order_id=str(order_id),
-                subtotal=subtotal,
-                tax=tax,
-                delivery_fee=delivery,
-                grand_total=subtotal + tax + delivery,
-                payment_method=session.get("payment", ""),
-                car_number=session.get("car_number", ""),
-            )
-            db_local.add(rec)
-            db_local.commit()
-        finally:
-            db_local.close()
-    except Exception as e:
-        print(f"SaleRecord save error: {e}")
 
 
 # ========== Manager notification helpers ==========
@@ -435,7 +378,7 @@ async def try_add_by_quantity(sender, session, text_lower, lang, bot=None):
         return False
     search_term = match.group(2).strip()
 
-    MENU = get_bot_menu(bot_id=bot.id if bot else None)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
     item_id, found_item = None, None
     for cat in MENU.values():
         for iid, item in cat.get("items", {}).items():
@@ -656,36 +599,13 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         await send_language_selection(sender, bot=bot)
         return
 
-    # ── Reservation keyword shortcut (from any stage except active stages) ──
-    protected_stages = {"get_name", "address", "payment", "deal_build", "bbq_sides",
-                        "car_number", "reservation_date", "reservation_time", "reservation_party"}
-    if text_lower in _RESERVATION_KEYWORDS and stage not in protected_stages:
-        if not session.get("name"):
-            session["stage"] = "get_name"
-            session["_after_name"] = "reservation"
-            await send_text_message(sender, t(lang, "name_ask"), bot=bot)
-        else:
-            session["stage"] = "reservation_date"
-            await send_reservation_start(sender, bot=bot)
-        return
-
-    # ── Car delivery keyword shortcut ────────────────────────────────────────
-    if any(kw in text_lower for kw in _CAR_DELIVERY_KEYWORDS) and stage not in protected_stages:
-        if session.get("order"):
-            await _handle_flow_inner(sender, "CAR_DELIVERY", True, bot, session, db_session=db_session)
-        else:
-            session["_delivery_pref"] = "car_delivery"
-            await send_text_message(sender, "🚗 Got it! Add items to your cart first, then we'll arrange car delivery.", bot=bot)
-            await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
-        return
-
     # Early order status check for non-ordering stages
     if is_order_status_query(text_lower) and stage not in ORDERING_STAGES:
         await handle_order_status(sender, session, lang, text, bot=bot)
         return
 
     # Quantity shortcut (e.g. "4 FF1" or "3 Classic Burger")
-    if not is_button and stage not in {"get_name", "address", "payment", "deal_build", "bbq_sides"}:
+    if not is_button and stage not in {"get_name", "address", "payment"}:
         if await try_add_by_quantity(sender, session, text_lower, lang, bot=bot):
             return
 
@@ -717,7 +637,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 await send_repeat_order_confirm(sender, last_items, addr, lang, bot=bot)
             else:
                 session["stage"] = "menu"
-                MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
+                MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
                 await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         elif text in ["NEW_ORDER", "REPEAT_ADD_MORE"]:
             session["stage"] = "menu"
@@ -728,7 +648,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         elif text == "REPEAT_CONFIRM":
             profile = get_profile_db(sender, bot.owner_id if bot else 1)
             history = profile.get("order_history", [])
-            MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
+            MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
             if history:
                 last_items = history[-1].get("items", [])
                 session["order"] = {}
@@ -755,8 +675,10 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 session["stage"] = "menu"
                 await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
             return
+        elif text == "NEW_RESERVATION":
+            session["stage"] = "reservation_name"
+            await send_text_message(sender, "🍽️ *Table Reservation*\n\nWhat name should the reservation be under?", bot=bot)
         else:
-            # Fallback for unhandled buttons (e.g. NEW_RESERVATION)
             session["stage"] = "menu"
             await send_main_menu(sender, session["order"], lang, bot=bot)
         return
@@ -766,7 +688,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         if text == "REPEAT_CONFIRM":
             profile = get_profile_db(sender, bot.owner_id if bot else 1)
             history = profile.get("order_history", [])
-            MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
+            MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
             if history:
                 last_items = history[-1].get("items", [])
                 session["order"] = {}
@@ -797,6 +719,79 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         return
 
+    # Reservation stages
+    if stage == "reservation_name":
+        name = text.strip()
+        if is_valid_name(name):
+            session["res_name"] = name.title()[:50]
+            session["stage"] = "reservation_party"
+            await send_text_message(sender, f"👥 How many people will be dining, {session['res_name']}?", bot=bot)
+        else:
+            await send_text_message(sender, "Please enter a valid name (letters only).", bot=bot)
+        return
+
+    if stage == "reservation_party":
+        try:
+            party = int(text.strip())
+            if 1 <= party <= 20:
+                session["res_party"] = party
+                session["stage"] = "reservation_date"
+                await send_text_message(sender, "📅 What date? (e.g. 25/12/2025)", bot=bot)
+            else:
+                await send_text_message(sender, "Please enter a number between 1 and 20.", bot=bot)
+        except ValueError:
+            await send_text_message(sender, "Please enter the number of guests (e.g. 4).", bot=bot)
+        return
+
+    if stage == "reservation_date":
+        raw = text.strip()
+        parsed_date = None
+        for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+            try:
+                parsed_date = time.strftime("%d/%m/%Y", time.strptime(raw, fmt))
+                break
+            except ValueError:
+                continue
+        if parsed_date:
+            session["res_date"] = parsed_date
+            session["stage"] = "reservation_time"
+            await send_text_message(sender, "🕐 What time? (e.g. 7:30 PM)", bot=bot)
+        else:
+            await send_text_message(sender, "Date not recognised. Please use DD/MM/YYYY format (e.g. 25/12/2025).", bot=bot)
+        return
+
+    if stage == "reservation_time":
+        session["res_time"] = text.strip()[:20]
+        # Save to DB
+        try:
+            db_local = SessionLocal()
+            res = Reservation(
+                owner_id=bot.owner_id if bot else 1,
+                bot_id=bot.id if bot else None,
+                customer_phone=sender,
+                customer_name=session.get("res_name", ""),
+                party_size=session.get("res_party", 2),
+                reservation_date=session.get("res_date", ""),
+                reservation_time=session.get("res_time", ""),
+                status="Pending",
+            )
+            db_local.add(res)
+            db_local.commit()
+            db_local.close()
+        except Exception as e:
+            print(f"Reservation save error: {e}")
+        session["stage"] = "menu"
+        confirm = (
+            f"✅ *Reservation Confirmed!*\n\n"
+            f"👤 Name: {session.get('res_name', '')}\n"
+            f"👥 Party: {session.get('res_party', '')}\n"
+            f"📅 Date: {session.get('res_date', '')}\n"
+            f"🕐 Time: {session.get('res_time', '')}\n\n"
+            f"We look forward to seeing you! 🍽️"
+        )
+        await send_text_message(sender, confirm, bot=bot)
+        return
+
     # Address update stage
     if stage == "address_update":
         if not is_valid_address(text):
@@ -810,7 +805,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         return
 
     # Menu loading
-    MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
+    MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
 
     if stage == "lang_select":
         lang_map = {"LANG_EN": "en", "LANG_AR": "ar", "LANG_HI": "hi", "LANG_FR": "fr", "LANG_DE": "de", "LANG_RU": "ru", "LANG_ZH": "zh", "LANG_ML": "ml"}
@@ -818,8 +813,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             session["lang"] = lang_map[text]
             lang = lang_map[text]
             session["stage"] = "menu"
-            _name = (bot.business_name or bot.name) if bot else "Restaurant"
-            await send_text_message(sender, f"Welcome to {_name}! 🍽️", bot=bot)
+            await send_text_message(sender, t(lang, "greeting_welcome"), bot=bot)
             await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
         else:
             await send_language_selection(sender, bot=bot)
@@ -845,17 +839,16 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         await send_cart_view(sender, session["order"], lang, bot=bot)
         return
 
-    # Dynamic category navigation: CAT_{any_key}
-    if text.startswith("CAT_"):
-        cat_key = text[4:].lower()
+    # Explicit category navigation
+    if text in CAT_MAP:
         session["stage"] = "items"
-        session["current_cat"] = cat_key
-        await send_category_items(sender, cat_key, session["order"], lang, bot=bot, db_session=db_session)
+        session["current_cat"] = CAT_MAP[text]
+        await send_category_items(sender, CAT_MAP[text], session["order"], lang, bot=bot, db_session=db_session)
         return
 
     # ADD_COMBO_DL1 must be checked BEFORE generic startswith("ADD_") or it gets eaten
     if text == "ADD_COMBO_DL1":
-        MENU = get_bot_menu(bot_id=bot.id if bot else None, db_session=db_session)
+        MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
         try:
             deal_item = MENU["deals"]["items"]["DL1"]
             if "DL1" in session["order"]:
@@ -886,24 +879,33 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             session["stage"] = "items"
             stage = "items"
 
-        # ── Deal Rule Check ──────────────────────────────────────────────
+        # ── Dynamic Deal Logic ──────────────────────────────────────────────
         deal_rules = get_deal_rules(bot)
         rule = deal_rules.get(item_id)
-
+        
+        # ── Universal Requirement Engine ─────────────────────────────────────
+        deal_rules = get_deal_rules(bot)
+        rule = deal_rules.get(item_id)
+        
         if rule:
             # 1. Check Pre-conditions (Must-haves)
             requires = rule.get("requires", [])
             if isinstance(requires, str): requires = [requires]
+            # Migration support for old 'burger_in_cart' string
             requires = ["burger" if r == "burger_in_cart" else r for r in requires]
-
+            
             for req in requires:
+                # Intelligent Match: Check Item ID, Name, and Category
                 met = False
                 for k, v in session["order"].items():
                     item_name = v["item"].get("name", "").lower()
+                    # 1. Direct ID match (e.g. "FF" prefix) or keyword in ID
                     if req.lower() in k.lower(): met = True
+                    # 2. Name match (e.g. "Burger" in "Classic Burger")
                     elif req.lower() in item_name: met = True
+                    # 3. Category match (Check if this item belongs to a category matching the requirement)
                     else:
-                        for cat_key, cat_data in MENU.items():
+                        for cat_key, cat_data in bot_menu.items():
                             if k in cat_data.get("items", {}):
                                 if req.lower() in cat_key.lower() or req.lower() in cat_data.get("name", "").lower():
                                     met = True
@@ -913,10 +915,12 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                     msg = f"To get this deal, please add {req.title()} to your cart first! 🛒"
                     await send_text_message(sender, msg, bot=bot)
                     session["stage"] = "items"
+                    # Try to find which category contains this requirement to help the user
                     help_cat = "fastfood"
                     if "pizza" in req.lower(): help_cat = "pizza"
                     elif "wing" in req.lower() or "side" in req.lower(): help_cat = "sides"
                     elif "drink" in req.lower() or "soda" in req.lower(): help_cat = "drinks"
+                    
                     session["current_cat"] = help_cat
                     session["deal_context"] = {"deal_id": f"{item_id}_PENDING"}
                     await send_category_items(sender, help_cat, session["order"], lang, bot=bot, db_session=db_session)
@@ -927,12 +931,53 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 session["stage"] = "deal_build"
                 session["deal_context"] = {"deal_id": item_id, "deal_item": found_item, "needs": list(rule.get("picks", [])), "picks": []}
                 if rule.get("picks"):
-                    await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot)
+                    await prompt_deal_pick(sender, session, rule["picks"][0], lang, bot=bot, db_session=db_session)
                 else:
-                    await finalize_deal(sender, session, lang, bot=bot)
+                    await finalize_deal(sender, session, lang, bot=bot, db_session=db_session)
                 return
 
-        # ── BBQ Items: Prompt for sides ──────────────────────────────────
+        # Default: Just add the item
+        if item_id in session["order"]:
+            session["order"][item_id]["qty"] += 1
+        else:
+            session["order"][item_id] = {"item": found_item, "qty": 1}
+        
+        session["last_added"] = item_id
+        session["stage"] = "qty_control"
+
+        # ── Pending Deal Completion ────────────────────────────────────────
+        # If we were waiting for an item to fulfill a deal, re-trigger the deal now
+        pending = session.get("deal_context", {}).get("deal_id", "")
+        if pending.endswith("_PENDING"):
+            orig_deal_id = pending.replace("_PENDING", "")
+            # IMPORTANT: Clear context before re-triggering to prevent loops
+            session["deal_context"] = {} 
+            # CRITICAL: Save session to DB before recursive call so handle_flow sees the new items!
+            from .db import save_session_db
+            save_session_db(sender, bot.id, session, db_session=db_session)
+            
+            # Re-run handle_flow for the original deal
+            await handle_flow(sender, f"ADD_{orig_deal_id}", is_button=True, bot=bot, db_session=db_session)
+            return # Stop here, handle_flow will take over the response
+
+        if item_id.startswith("DL"):
+            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
+        
+        await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
+        return
+
+        # DL6: explicit Fish & Chips combo — no sub-picks needed
+        if item_id == "DL6":
+            if "DL6" in session["order"]:
+                session["order"]["DL6"]["qty"] += 1
+            else:
+                session["order"]["DL6"] = {"item": found_item, "qty": 1, "components": ["Fish & Chips", "Soda"]}
+            session["last_added"] = "DL6"
+            session["stage"] = "qty_control"
+            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
+            await send_qty_control(sender, "DL6", found_item, session["order"], lang, bot=bot)
+            return
+
         if item_id in BBQ_NEEDS_SIDES:
             if item_id in session["order"]:
                 session["order"][item_id]["qty"] += 1
@@ -947,28 +992,33 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await prompt_bbq_sides(sender, session, lang, bot=bot)
             return
 
-        # ── Default: Add item to cart ────────────────────────────────────
+        # Basic item add
         if item_id in session["order"]:
             session["order"][item_id]["qty"] += 1
         else:
             session["order"][item_id] = {"item": found_item, "qty": 1}
-
         session["last_added"] = item_id
-        session["stage"] = "qty_control"
 
-        # ── Pending Deal Completion ──────────────────────────────────────
-        pending = (session.get("deal_context") or {}).get("deal_id", "")
-        if pending.endswith("_PENDING"):
-            orig_deal_id = pending.replace("_PENDING", "")
-            session["deal_context"] = {}
-            await _handle_flow_inner(sender, f"ADD_{orig_deal_id}", True, bot, session, db_session=db_session)
+        # DL1_PENDING: burger just chosen, auto-add DL1
+        if (is_burger(item_id) and (session.get("deal_context") or {}).get("deal_id") == "DL1_PENDING"):
+            dl1_item_lookup = find_item("DL1", MENU)
+            dl1_item = dl1_item_lookup[1]
+            if dl1_item:
+                if "DL1" in session["order"]:
+                    session["order"]["DL1"]["qty"] += 1
+                else:
+                    session["order"]["DL1"] = {"item": dl1_item, "qty": 1}
+            session["deal_context"] = None
+            session["stage"] = "qty_control"
+            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
+            await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
             return
 
-        # ── Upsell logic ─────────────────────────────────────────────────
         declined = session.get("upsell_declined_types", [])
         shown = session.get("upsell_shown_for", [])
         upsell_cfg = get_upsell_config(bot)
 
+        # Burger combo upsell
         if (upsell_cfg.get("burger_combo")
                 and is_burger(item_id)
                 and "burger_combo" not in declined
@@ -984,6 +1034,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 await send_quick_combo_upsell(sender, lang, bot=bot)
                 return
 
+        # Pizza wings upsell
         if (upsell_cfg.get("pizza_wings")
                 and is_pizza(item_id)
                 and "pizza_wings" not in declined
@@ -996,10 +1047,20 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_quick_upsell(sender, "SD4", "🍗 Add 6 wings with your pizza? Most people do! 😄", lang, "pizza_wings", bot=bot)
             return
 
-        if item_id.startswith("DL"):
-            await send_text_message(sender, t(lang, "deal_added"), bot=bot)
-
+        session["stage"] = "qty_control"
         await send_qty_control(sender, item_id, found_item, session["order"], lang, bot=bot)
+        return
+
+    # upsell_combo: only SKIP_UPSELL handled here; ADD_COMBO_DL1 handled above
+    # Any unrecognised text while in upsell_combo routes to qty_control, not silent drop
+    if stage == "upsell_combo":
+        session.pop("_pending_upsell_type", None)
+        session["stage"] = "qty_control"
+        last = session.get("last_added")
+        if last and last in session["order"]:
+            await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
+        else:
+            await send_cart_view(sender, session["order"], lang, bot=bot)
         return
 
     if text == "SKIP_UPSELL":
@@ -1013,18 +1074,6 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
         else:
             await send_main_menu(sender, session["order"], lang, bot=bot, db_session=db_session)
-        return
-
-    # upsell_combo: ADD_COMBO_DL1 handled above, SKIP_UPSELL handled above
-    # Any other text while in upsell_combo → dismiss and proceed
-    if stage == "upsell_combo":
-        session.pop("_pending_upsell_type", None)
-        session["stage"] = "qty_control"
-        last = session.get("last_added")
-        if last and last in session["order"]:
-            await send_qty_control(sender, last, session["order"][last]["item"], session["order"], lang, bot=bot)
-        else:
-            await send_cart_view(sender, session["order"], lang, bot=bot)
         return
 
     if stage == "deal_build" and text.startswith("DEAL_PICK_"):
@@ -1142,29 +1191,10 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
         return
 
-    if text == "CAR_DELIVERY":
-        session["delivery_type"] = "car_delivery"
-        session["stage"] = "car_number"
-        await send_text_message(sender, "🚗 Great! We'll bring your order to your car.\n\nWhat's your *car colour & plate number*? (e.g. Red Toyota, ABC-123)", bot=bot)
-        return
-
-    if stage == "car_number":
-        session["car_number"] = text.strip()[:60]
-        session["stage"] = "payment"
-        await send_text_message(sender, f"✅ Got it! We'll look for: *{session['car_number']}*\n\nNow choose payment method 👇", bot=bot)
-        await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
-        return
-
     if text in ["DELIVERY", "PICKUP"]:
         total = get_order_total(session["order"])
-        try:
-            _rules = json.loads(bot.config_json or "{}").get("rules", {}) if bot else {}
-            _min_delivery = _rules.get("min_order", MIN_DELIVERY_ORDER)
-            _min_pickup = _rules.get("min_pickup", MIN_PICKUP_ORDER)
-        except Exception:
-            _min_delivery, _min_pickup = MIN_DELIVERY_ORDER, MIN_PICKUP_ORDER
         if text == "DELIVERY":
-            if total < _min_delivery:
+            if total < MIN_DELIVERY_ORDER:
                 await send_min_order_warning(sender, "delivery", lang, bot=bot)
                 return
             session["delivery_type"] = "delivery"
@@ -1176,7 +1206,7 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
                 session["stage"] = "address"
                 await send_text_message(sender, t(lang, "address_ask"), bot=bot)
         else:
-            if total < _min_pickup:
+            if total < MIN_PICKUP_ORDER:
                 await send_min_order_warning(sender, "pickup", lang, bot=bot)
                 return
             session["delivery_type"] = "pickup"
@@ -1215,13 +1245,24 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
         session["just_confirmed"] = True
         session["just_confirmed_at"] = time.time()
 
+        # Store in saved_orders so manager status updates can reach customer
+        saved_orders[str(order_id)] = {
+            "session": session.copy(),
+            "sender": sender,
+            "timestamp": time.time(),
+            "order": session["order"].copy(),
+            "customer_name": session.get("name", ""),
+            "delivery_type": session.get("delivery_type", "pickup"),
+            "address": session.get("address", ""),
+        }
+        customer_order_lookup.setdefault(sender, []).append(str(order_id))
+
         # All post-confirm writes are fire-and-forget — customer doesn't wait
         _owner_id = bot.owner_id if bot else 1
         _order_snapshot = session["order"].copy()
         asyncio.create_task(save_profile_async(sender, session.copy(), owner_id=_owner_id))
         asyncio.create_task(add_to_order_history_async(sender, order_id, _order_snapshot, _owner_id))
-        asyncio.create_task(notify_manager(sender, session.copy(), order_id, bot=bot))
-        asyncio.get_event_loop().run_in_executor(None, _save_sale_record, sender, session.copy(), order_id, bot)
+        asyncio.create_task(notify_manager(sender, session.copy(), str(order_id), bot=bot))
 
         # Now clear for next order
         session["stage"] = "post_order"
@@ -1233,13 +1274,8 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
     if stage == "get_name":
         if is_valid_name(text):
             session["name"] = text.strip().title()[:30]
-            after = session.pop("_after_name", None)
-            if after == "reservation":
-                session["stage"] = "reservation_date"
-                await send_reservation_start(sender, bot=bot)
-            else:
-                session["stage"] = "delivery"
-                await send_delivery_buttons(sender, session["name"], lang, bot=bot, table_number=session.get("table_number"))
+            session["stage"] = "delivery"
+            await send_delivery_buttons(sender, session["name"], lang, bot=bot, table_number=session.get("table_number"))
         else:
             await send_text_message(sender, t(lang, "invalid_name"), bot=bot)
         return
@@ -1252,75 +1288,6 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_payment_buttons(sender, session.get("name", ""), lang, bot=bot)
         else:
             await send_text_message(sender, t(lang, "invalid_address"), bot=bot)
-        return
-
-    # ── Reservation flow stages ────────────────────────────────────────────
-    if stage == "reservation_date":
-        session["_res_date"] = text.strip()
-        session["stage"] = "reservation_time"
-        await send_text_message(sender, f"✅ Date: *{text.strip()}*\n\nWhat *time* would you like? (e.g. 7:30 PM)", bot=bot)
-        return
-
-    if stage == "reservation_time":
-        session["_res_time"] = text.strip()
-        session["stage"] = "reservation_party"
-        await send_text_message(sender, f"✅ Time: *{text.strip()}*\n\nHow many *guests* will be joining? (e.g. 4)", bot=bot)
-        return
-
-    if stage == "reservation_party":
-        try:
-            party = int(re.sub(r"[^0-9]", "", text) or "2")
-        except Exception:
-            party = 2
-        party = max(1, min(party, 50))
-        res_name = session.get("name", "Guest")
-        res_date = session.get("_res_date", "")
-        res_time = session.get("_res_time", "")
-        # Save to DB
-        try:
-            db_local = SessionLocal()
-            res = Reservation(
-                owner_id=bot.owner_id if bot else 1,
-                bot_id=bot.id if bot else None,
-                customer_phone=sender,
-                customer_name=res_name,
-                party_size=party,
-                reservation_date=res_date,
-                reservation_time=res_time,
-                status="Pending",
-            )
-            db_local.add(res)
-            db_local.commit()
-            db_local.close()
-        except Exception as e:
-            print(f"Reservation save error: {e}")
-        # Confirm to customer
-        bot_name = (bot.business_name or bot.name) if bot else "Restaurant"
-        await send_text_message(
-            sender,
-            f"✅ *Reservation Confirmed!*\n\n"
-            f"📅 {res_date} at {res_time}\n"
-            f"👥 {party} guests\n"
-            f"👤 {res_name}\n"
-            f"📱 +{sender}\n\n"
-            f"We'll see you at *{bot_name}*! 🍽️\n"
-            f"Reply *menu* to also place a food order.",
-            bot=bot
-        )
-        # Notify manager
-        body = (
-            f"📅 *NEW RESERVATION*\n\n"
-            f"👤 {res_name}\n📱 +{sender}\n"
-            f"📅 {res_date} at {res_time}\n"
-            f"👥 {party} guests"
-        )
-        asyncio.create_task(send_manager_action_list(
-            f"RES{int(time.time())%10000}", sender,
-            "📅 New Reservation", body, bot=bot
-        ))
-        session["stage"] = "menu"
-        session.pop("_res_date", None)
-        session.pop("_res_time", None)
         return
 
     # Greetings / Fallback
@@ -1358,3 +1325,227 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
     session["conversation"].append({"role": "assistant", "content": reply})
     session["conversation"] = session["conversation"][-8:]
     await send_text_message(sender, reply, bot=bot)
+
+
+# ========== Manager state storage (in-memory per bot) ==========
+# {sender: {"stage": ..., "period": ..., "period_value": ..., "feature": ...}}
+_manager_sessions: dict = {}
+
+
+def _get_mgr_session(sender: str) -> dict:
+    if sender not in _manager_sessions:
+        _manager_sessions[sender] = {"stage": "idle"}
+    return _manager_sessions[sender]
+
+
+# ========== Manager flow entry point ==========
+async def handle_manager_flow(sender, text, is_button=False, bot=None, db_session=None):
+    """Handle all messages from the manager's WhatsApp number."""
+    try:
+        await _handle_manager_inner(sender, text, is_button, bot, db_session)
+    except Exception as e:
+        print(f"MANAGER FLOW ERROR: {e}")
+        traceback.print_exc()
+        await send_text_message(sender, "⚠️ Error processing your request. Please try again.", bot=bot)
+
+
+async def _handle_manager_inner(sender, text, is_button, bot, db_session):
+    mgr = _get_mgr_session(sender)
+    text_upper = text.strip().upper()
+    text_lower = text.strip().lower()
+
+    # ── Handle MGR_<order_id>_<ACTION> status updates ──────────────────────────
+    if text.startswith("MGR_"):
+        parts = text.split("_")
+        # format: MGR_{order_id}_{ACTION}
+        if len(parts) >= 3:
+            order_id = parts[1]
+            action = parts[2]
+            await _process_manager_status(sender, order_id, action, bot=bot)
+            return
+
+    # ── Idle: check for report trigger ──────────────────────────────────────
+    trigger_words = {"report", "رپورٹ", "sales", "stats", "statistics"}
+    if mgr["stage"] == "idle" or text_lower in trigger_words:
+        if text_lower in trigger_words or text_lower.startswith("report"):
+            mgr["stage"] = "report_period"
+            await send_manager_report_menu(sender, bot=bot)
+            return
+        # Unknown message from manager — brief acknowledgement
+        await send_text_message(
+            sender,
+            "👋 Manager Panel\n\n"
+            "Send *report* for sales report.\n"
+            "Order status updates arrive automatically.",
+            bot=bot
+        )
+        return
+
+    # ── Report period selection ──────────────────────────────────────────────
+    if mgr["stage"] == "report_period":
+        if text_upper == "RPT_DAY":
+            mgr["stage"] = "report_day_input"
+            mgr["period"] = "day"
+            await send_text_message(sender, "📅 Enter date (DD/MM/YYYY):", bot=bot)
+        elif text_upper == "RPT_WEEK":
+            mgr["stage"] = "report_week_type"
+            mgr["period"] = "week"
+            await send_manager_week_menu(sender, bot=bot)
+        elif text_upper == "RPT_MONTH":
+            mgr["period"] = "month"
+            mgr["period_value"] = ""
+            mgr["stage"] = "report_feature"
+            await send_manager_feature_menu(sender, bot=bot)
+        elif text_upper == "RPT_ALL":
+            mgr["period"] = "all"
+            mgr["period_value"] = ""
+            mgr["stage"] = "report_feature"
+            await send_manager_feature_menu(sender, bot=bot)
+        else:
+            await send_manager_report_menu(sender, bot=bot)
+        return
+
+    # ── Day input ────────────────────────────────────────────────────────────
+    if mgr["stage"] == "report_day_input":
+        mgr["period_value"] = text.strip()
+        mgr["stage"] = "report_feature"
+        await send_manager_feature_menu(sender, bot=bot)
+        return
+
+    # ── Week type ────────────────────────────────────────────────────────────
+    if mgr["stage"] == "report_week_type":
+        if text_upper == "RPT_WEEK_CURRENT":
+            mgr["period"] = "week_current"
+        else:
+            mgr["period"] = "week_last7"
+        mgr["period_value"] = ""
+        mgr["stage"] = "report_feature"
+        await send_manager_feature_menu(sender, bot=bot)
+        return
+
+    # ── Feature selection → generate report ─────────────────────────────────
+    if mgr["stage"] == "report_feature":
+        feature_map = {
+            "RPT_FEAT_ALL": "all",
+            "RPT_FEAT_DELIVERY": "delivery",
+            "RPT_FEAT_CAR": "car",
+            "RPT_FEAT_RESERVATION": "reservation",
+            "RPT_FEAT_QR": "qr",
+        }
+        feature = feature_map.get(text_upper, "all")
+        feature_labels = {
+            "all": "All Orders",
+            "delivery": "Home Deliveries",
+            "car": "Car Deliveries",
+            "reservation": "Reservations",
+            "qr": "Restaurant QR Orders",
+        }
+
+        mgr["stage"] = "idle"
+        await send_text_message(sender, "⏳ Generating your report...", bot=bot)
+        await _generate_and_send_report(
+            sender, bot, db_session,
+            period=mgr.get("period", "all"),
+            period_value=mgr.get("period_value", ""),
+            feature=feature,
+            feature_label=feature_labels.get(feature, "All"),
+        )
+        return
+
+    # Fallback
+    mgr["stage"] = "idle"
+    await send_text_message(sender, "Send *report* to generate a sales report.", bot=bot)
+
+
+async def _process_manager_status(sender, order_id, action, bot=None):
+    """Update order status and notify customer."""
+    order_data = saved_orders.get(order_id, {})
+    customer_number = order_data.get("sender") or order_data.get("customer_number", "")
+    customer_name = order_data.get("customer_name", "Customer")
+
+    status_messages = {
+        "READY": f"✅ Great news, {customer_name}! Your order #{order_id} is *ready* for pickup! 🍽️\n\nCome collect when you're ready! 😊",
+        "OUTFORDELIVERY": f"🚚 Your order #{order_id} is *out for delivery*, {customer_name}!\n\nExpect it in 20-30 minutes. Get ready! 😊",
+        "CANCELLED": f"❌ We're sorry, {customer_name}. Your order #{order_id} has been *cancelled*.\n\nPlease contact us for a refund or to re-order. 🙏",
+    }
+    msg = status_messages.get(action, f"Order #{order_id} status updated.")
+
+    if customer_number:
+        await send_text_message(customer_number, msg, bot=bot)
+        await send_text_message(sender, f"✅ Status sent to +{customer_number}", bot=bot)
+    else:
+        await send_text_message(sender, f"⚠️ Order #{order_id} customer number not found in memory.", bot=bot)
+
+    # Update DB order status
+    try:
+        db_local = SessionLocal()
+        db_order = db_local.query(Order).filter(Order.id == int(order_id)).first()
+        if db_order:
+            db_order.status = action.title()
+            db_local.commit()
+        db_local.close()
+    except Exception as e:
+        print(f"Order status DB update error: {e}")
+
+
+async def _generate_and_send_report(sender, bot, db_session, period, period_value, feature, feature_label):
+    """Fetch orders/reservations, generate PDF, send via WhatsApp."""
+    from .report_generator import (
+        _get_date_range, _filter_orders, generate_report_pdf,
+        build_text_summary
+    )
+    import os
+
+    try:
+        start_dt, end_dt, period_label = _get_date_range(period, period_value)
+
+        # Fetch from DB
+        db_local = db_session or SessionLocal()
+        owner_id = bot.owner_id if bot else None
+        q = db_local.query(Order)
+        if owner_id:
+            q = q.filter(Order.owner_id == owner_id)
+        all_orders = q.all()
+
+        reservations = []
+        if feature in ("reservation", "all"):
+            rq = db_local.query(Reservation)
+            if owner_id:
+                rq = rq.filter(Reservation.owner_id == owner_id)
+            all_res = rq.all()
+            reservations = [r for r in all_res if start_dt <= r.created_at <= end_dt]
+
+        if db_session is None:
+            db_local.close()
+
+        # Filter orders
+        if feature == "reservation":
+            orders = []
+        else:
+            orders = _filter_orders(all_orders, start_dt, end_dt, feature)
+
+        owner_name = bot.business_name if bot else ""
+
+        # Send text summary first
+        summary = build_text_summary(orders, reservations, period_label, feature_label)
+        await send_text_message(sender, summary, bot=bot)
+
+        # Generate PDF
+        pdf_path = generate_report_pdf(orders, reservations, period_label, feature_label, owner_name)
+
+        # Try to send PDF via WhatsApp document upload
+        # WhatsApp requires a publicly accessible URL. We'll host it via a temp endpoint or skip.
+        # For now: inform manager where the file is and send text summary.
+        # Full PDF sending requires a media upload endpoint.
+        await send_text_message(
+            sender,
+            f"📄 PDF report generated.\n"
+            f"File: {os.path.basename(pdf_path)}\n\n"
+            f"_To receive PDFs directly, set up a media hosting URL in your server config._",
+            bot=bot
+        )
+
+    except Exception as e:
+        print(f"Report generation error: {e}")
+        traceback.print_exc()
+        await send_text_message(sender, f"❌ Report generation failed: {str(e)[:100]}", bot=bot)
