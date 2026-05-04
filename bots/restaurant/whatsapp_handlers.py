@@ -38,6 +38,22 @@ async def send_text_message(to, message, bot=None):
     payload = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
     await _send_request(payload, bot)
 
+async def send_catalog_message(to, body_text="Browse our full menu & products below 👇", bot=None):
+    """Send the WhatsApp Business catalog linked to this phone number. Meta Cloud API only."""
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        return  # wwebjs doesn't support catalog messages
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "catalog_message",
+            "body": {"text": body_text},
+            "action": {"name": "catalog_message"},
+        },
+    }
+    await _send_request(payload, bot)
+
 async def send_language_selection(sender, bot=None):
     payload = {
         "messaging_product": "whatsapp",
