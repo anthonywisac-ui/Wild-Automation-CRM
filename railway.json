@@ -1,8 +1,8 @@
 {
-  "build": { "builder": "NIXPACKS" },
+  "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile" },
   "deploy": {
+    "startCommand": "/start.sh",
     "numReplicas": 1,
-    "startCommand": "uvicorn main:app --host 0.0.0.0 --port 8000",
     "restartPolicyType": "ON_FAILURE"
   }
 }

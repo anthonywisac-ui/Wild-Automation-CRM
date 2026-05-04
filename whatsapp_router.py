@@ -15,6 +15,8 @@ from utils import truncate_title
 router = APIRouter(tags=["WhatsApp Webhook"])
 logger = logging.getLogger(__name__)
 
+BRIDGE_INTERNAL_SECRET = os.getenv("BRIDGE_INTERNAL_SECRET", "")
+
 async def trigger_vapi_outbound_call(sender_phone: str, bot: WhatsappBot, db: Session):
     """Triggers a Vapi outbound call to the WhatsApp user"""
     vapi_agent_id = bot.vapi_agent_id
@@ -284,7 +286,20 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
 
         background_tasks.add_task(log_chat_async, bot.owner_id, sender, user_msg, bot.id)
 
-        # ── 4. Route to correct handler ──────────────────────────────────────
+        # ── 4. Plugin pre-message hooks (run before bot flow) ───────────────
+        try:
+            from plugins import run_pre_message_hooks
+            plugin_reply = await run_pre_message_hooks(sender, user_msg, bot, db)
+            if plugin_reply:
+                from whatsapp_handlers import send_text_message_v2
+                await send_text_message_v2(sender, plugin_reply, bot)
+                db.add(ChatHistory(user_id=bot.owner_id, customer_phone=sender, role="assistant", content=plugin_reply))
+                db.commit()
+                return {"status": "ok"}
+        except Exception as _pe:
+            logger.warning(f"Plugin hook error: {_pe}")
+
+        # ── 5. Route to correct handler ──────────────────────────────────────
         if bot.forwarding_url:
             # ── FORWARDING MODE: send raw payload to external engine (e.g. Railway) ──
             import aiohttp
@@ -360,6 +375,148 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
         logger.error(f"WhatsApp Webhook Error: {e}\n{traceback.format_exc()}")
 
     return {"status": "ok"}
+
+# ========== wwebjs Incoming Webhook ==========
+@router.post("/wwebjs/webhook")
+async def wwebjs_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Receives incoming messages forwarded by the wa-bridge Node.js service.
+    Payload: { session, from, body, type, timestamp }
+
+    Security: verifies X-Bridge-Secret header so only the bridge can post here.
+    Then routes to the same bot-flow logic used by the Meta webhook.
+    """
+    # ── 1. Verify bridge secret ───────────────────────────────────────────────
+    if BRIDGE_INTERNAL_SECRET:
+        provided = request.headers.get("X-Bridge-Secret", "")
+        if provided != BRIDGE_INTERNAL_SECRET:
+            logger.warning("[wwebjs] Rejected webhook — wrong X-Bridge-Secret")
+            return {"status": "ok"}   # always return 200 to bridge
+
+    data = await request.json()
+
+    session_name = data.get("session", "")
+    sender       = data.get("from", "").strip()
+    user_msg     = data.get("body", "").strip()
+
+    if not session_name or not sender or not user_msg:
+        return {"status": "ok"}
+
+    # ── 2. Find bot by wwebjs_session name ────────────────────────────────────
+    bot = db.query(WhatsappBot).filter(
+        WhatsappBot.wwebjs_session == session_name
+    ).first()
+
+    if not bot:
+        logger.warning(f"[wwebjs] No bot found for session: {session_name}")
+        return {"status": "ok"}
+
+    # ── 3. Rate limit ─────────────────────────────────────────────────────────
+    if _is_rate_limited(sender):
+        logger.warning(f"[wwebjs] Rate limit hit for sender: {sender}")
+        return {"status": "ok"}
+
+    # ── 4. Translate numbered reply → button ID using stored menu map ─────────
+    from providers.wwebjs import get_menu_map
+    menu_map = get_menu_map(session_name, sender)
+    if menu_map and user_msg.isdigit():
+        translated = menu_map.get(user_msg)
+        if translated:
+            logger.debug(f"[wwebjs] Translated '{user_msg}' → '{translated}'")
+            user_msg = translated
+
+    is_button = False   # wwebjs has no native buttons; all input is text
+
+    # ── 5. Auto-create contact ────────────────────────────────────────────────
+    contact = db.query(Contact).filter(
+        Contact.phone == sender,
+        Contact.owner_id == bot.owner_id
+    ).first()
+    if not contact:
+        contact = Contact(
+            owner_id=bot.owner_id, phone=sender,
+            first_name="WhatsApp User", source="WhatsApp-wwebjs"
+        )
+        db.add(contact)
+        db.commit()
+
+    # ── 6. Background logging ─────────────────────────────────────────────────
+    def _log_chat(owner_id, phone, msg, bot_id):
+        db_l = SessionLocal()
+        try:
+            db_l.add(ChatHistory(
+                user_id=owner_id, customer_phone=phone, role="user", content=msg
+            ))
+            db_l.commit()
+            log_bot_event(bot_id, "MSG_IN", msg[:200], customer_phone=phone)
+        finally:
+            db_l.close()
+
+    background_tasks.add_task(_log_chat, bot.owner_id, sender, user_msg, bot.id)
+
+    # ── 7. Vapi handoff check ─────────────────────────────────────────────────
+    handoff_keywords = ["call me", "talk to human", "speak with someone", "voice call"]
+    if any(k in user_msg.lower() for k in handoff_keywords):
+        if bot.vapi_agent_id:
+            success = await trigger_vapi_outbound_call(sender, bot, db)
+            if success:
+                from whatsapp_handlers import send_text_message_v2
+                await send_text_message_v2(
+                    sender,
+                    "📞 I'm initiating a voice call to you right now! Please pick up.",
+                    bot,
+                )
+                db.add(ChatHistory(
+                    user_id=bot.owner_id, customer_phone=sender,
+                    role="assistant", content="[vapi_handoff_triggered]"
+                ))
+                db.commit()
+                return {"status": "ok"}
+
+    # ── 8. Route to bot flow (same as Meta webhook) ───────────────────────────
+    try:
+        if bot.bot_type == "restaurant":
+            from bots.restaurant.flow import handle_flow, handle_manager_flow
+            manager_num  = (bot.manager_number or "").strip().lstrip("+")
+            sender_bare  = sender.strip().lstrip("+")
+            is_manager   = manager_num and (
+                sender_bare == manager_num or sender == bot.manager_number
+            )
+            if is_manager:
+                await handle_manager_flow(sender, user_msg, is_button=is_button, bot=bot, db_session=db)
+            else:
+                await handle_flow(sender, user_msg, is_button=is_button, bot=bot, db_session=db)
+
+        elif bot.bot_type == "real_estate":
+            from bots.real_estate.flow import handle_flow as re_flow
+            await re_flow(sender, user_msg, bot, db)
+
+        elif bot.bot_type == "appointment":
+            from bots.appointment.flow import handle_flow as appt_flow
+            await appt_flow(sender, user_msg, bot, db)
+
+        else:
+            # AI fallback
+            reply = await get_ai_response(sender, user_msg, bot, db)
+            from whatsapp_handlers import send_text_message_v2
+            await send_text_message_v2(sender, reply, bot)
+            db.add(ChatHistory(
+                user_id=bot.owner_id, customer_phone=sender,
+                role="assistant", content=reply
+            ))
+
+        db.commit()
+
+    except Exception as exc:
+        import traceback
+        logger.error(f"[wwebjs] Flow error: {exc}\n{traceback.format_exc()}")
+
+    return {"status": "ok"}
+
 
 # ========== QR Table Entry Endpoint ==========
 @router.get("/qr/{bot_id}/{table_number}")

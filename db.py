@@ -73,6 +73,9 @@ class User(Base):
     gemini_api_key = Column(String, default="")
     openai_api_key = Column(String, default="")
     minimax_api_key = Column(String, default="")
+    anthropic_api_key = Column(String, default="")
+    openrouter_api_key = Column(String, default="")
+    openrouter_model = Column(String, default="nousresearch/hermes-3-llama-3.1-405b:free")
     default_voice = Column(String, default="Alloy")
     default_first_message = Column(String, default="Hello, how can I help you?")
 
@@ -191,6 +194,15 @@ class WhatsappBot(Base):
     status = Column(String, default="active") # Bug #7: monitoring status
     last_health_check = Column(DateTime, nullable=True)
 
+    # ── Dual-provider fields ──────────────────────────────────────────────────
+    # provider: "meta" (default, Meta Cloud API) | "wwebjs" (own number via QR)
+    provider          = Column(String, default="meta")
+    # wwebjs_session: session name in wa-bridge, e.g. "bot_7"
+    wwebjs_session    = Column(String, nullable=True)
+    # wwebjs_bridge_url: URL of the wa-bridge service for this bot.
+    # If blank, falls back to WWEBJS_BRIDGE_URL env var.
+    wwebjs_bridge_url = Column(String, nullable=True)
+
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
     id = Column(Integer, primary_key=True, index=True)
@@ -218,6 +230,7 @@ class Order(Base):
     tax_amount = Column(Float, default=0.0)
     delivery_amount = Column(Float, default=0.0)
     grand_total = Column(Float, default=0.0)
+    delivery_type = Column(String, default="pickup")
     status = Column(String, default="Pending")
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -303,6 +316,15 @@ class SaleRecord(Base):
     payment_method = Column(String, default="")
     car_number = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+class BotPlugin(Base):
+    __tablename__ = "bot_plugins"
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("whatsapp_bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    plugin_name = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True)
+    config_json = Column(Text, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class CustomerProfile(Base):
     __tablename__ = "customer_profiles"
@@ -439,4 +461,24 @@ def log_bot_event(bot_id: int, event_type: str, details: str = "", customer_phon
 
 def migrate_db():
     Base.metadata.create_all(bind=engine)
+    # Add new columns to existing tables without dropping them
+    with engine.connect() as conn:
+        inspector = inspect(engine)
+        for table_name, columns in [
+            ("orders", ["delivery_type TEXT DEFAULT 'pickup'"]),
+            ("whatsapp_bots", [
+                "provider TEXT DEFAULT 'meta'",
+                "wwebjs_session TEXT",
+                "wwebjs_bridge_url TEXT",
+            ]),
+        ]:
+            existing_cols = {c["name"] for c in inspector.get_columns(table_name)} if table_name in inspector.get_table_names() else set()
+            for col_def in columns:
+                col_name = col_def.split()[0]
+                if col_name not in existing_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_def}"))
+                        conn.commit()
+                    except Exception:
+                        pass
     print("Database Migrated Successfully.")

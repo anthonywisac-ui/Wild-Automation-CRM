@@ -10,10 +10,17 @@ from .strings import t
 API_VERSION = "v19.0"
 
 async def _send_request(payload, bot=None):
-    token = bot.meta_token if bot and bot.meta_token else WHATSAPP_TOKEN
+    # wwebjs path: convert Meta payload → numbered text, send via local bridge
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        from providers.wwebjs import WwebjsProvider
+        await WwebjsProvider(bot).dispatch_payload(payload)
+        return None
+
+    # Meta Cloud API path (unchanged)
+    token    = bot.meta_token    if bot and bot.meta_token    else WHATSAPP_TOKEN
     phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
-    url = f"https://graph.facebook.com/{API_VERSION}/{phone_id}/messages"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url      = f"https://graph.facebook.com/{API_VERSION}/{phone_id}/messages"
+    headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
         session = await SharedSession.get_session()
         async with session.post(url, json=payload, headers=headers) as r:
@@ -26,6 +33,22 @@ async def _send_request(payload, bot=None):
 
 async def send_text_message(to, message, bot=None):
     payload = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
+    await _send_request(payload, bot)
+
+async def send_catalog_message(to, body_text="Browse our full menu & products below 👇", bot=None):
+    """Send the WhatsApp Business catalog linked to this phone number. Meta Cloud API only."""
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        return  # wwebjs doesn't support catalog messages
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "catalog_message",
+            "body": {"text": body_text},
+            "action": {"name": "catalog_message"},
+        },
+    }
     await _send_request(payload, bot)
 
 async def send_language_selection(sender, bot=None):
@@ -393,22 +416,32 @@ async def send_repeat_order_confirm(sender, last_items, address, lang, bot=None)
 
 async def send_manager_action_list(order_id, customer_number, header_text, body_text, footer_text="Tap action to update customer", bot=None):
     to = (bot.manager_number if bot and bot.manager_number else None) or MANAGER_NUMBER
+    if not to:
+        print(f"[Manager] Skipped: no manager_number on bot and no global MANAGER_NUMBER")
+        return
+    to = to.lstrip("+")  # WhatsApp API requires no leading +
     rows = [
         {"id": f"MGR_{order_id}_READY", "title": "✅ Ready", "description": "Food is ready"},
         {"id": f"MGR_{order_id}_OUTFORDELIVERY", "title": "🚚 Out for Delivery", "description": "Driver on the way"},
         {"id": f"MGR_{order_id}_CANCELLED", "title": "❌ Cancelled", "description": "Cancel this order"}
     ]
+    # WhatsApp interactive list body max 1024 chars
+    body_truncated = body_text[:1000] + "…" if len(body_text) > 1000 else body_text
     payload = {
         "messaging_product": "whatsapp", "to": to, "type": "interactive",
         "interactive": {
             "type": "list",
             "header": {"type": "text", "text": truncate_title(header_text, 60)},
-            "body": {"text": body_text},
+            "body": {"text": body_truncated},
             "footer": {"text": truncate_title(footer_text, 60)},
             "action": {"button": "Update Status", "sections": [{"title": f"Order #{order_id}", "rows": rows}]}
         }
     }
-    await _send_request(payload, bot)
+    r = await _send_request(payload, bot)
+    if r is None or r.status >= 400:
+        # Fallback: plain text so manager always gets notified
+        plain = f"{header_text}\n\n{body_text}\n\nCustomer: +{customer_number}"
+        await send_text_message(to, plain[:4000], bot)
 
 async def send_document_message(to, document_url, filename, caption="", bot=None):
     payload = {

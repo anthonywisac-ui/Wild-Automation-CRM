@@ -10,7 +10,7 @@ import logging
 import requests
 
 from auth import get_current_user, require_admin
-from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord
+from db import get_db, User, WhatsappBot, Contact, Deal, Call, VapiAgent, AuditLog, BotConfigAudit, AdminSetting, ChatHistory, BotEventLog, log_bot_event, Reservation, SaleRecord, BotPlugin
 
 router = APIRouter(prefix="/api/crm", tags=["CRM"])
 logger = logging.getLogger(__name__)
@@ -149,6 +149,9 @@ class UserConfigSave(BaseModel):
     gemini_api_key: Optional[str] = ""
     openai_api_key: Optional[str] = ""
     minimax_api_key: Optional[str] = ""
+    anthropic_api_key: Optional[str] = ""
+    openrouter_api_key: Optional[str] = ""
+    openrouter_model: Optional[str] = "nousresearch/hermes-3-llama-3.1-405b:free"
     default_voice: Optional[str] = "Alloy"
     default_first_message: Optional[str] = "Hello, how can I help you?"
 
@@ -316,7 +319,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
         "phone_number_id", "waba_id", "verify_token", "manager_number",
         "ai_provider", "ai_api_key", "system_prompt", "webhook_url",
         "config_json", "tax_rate", "delivery_fee", "business_niche", "vapi_agent_id",
-        "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key",
+        "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key",
         "forwarding_url",
     }
 
@@ -329,7 +332,7 @@ def update_bot_api(bot_id: int, data: dict, current_user: User = Depends(get_cur
                 
                 if old_val != new_val:
                     # Bug #2 & #8: Log Config Audit with masking
-                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key"]
+                    is_sensitive = k in ["meta_token", "ai_api_key", "vapi_api_key", "openai_api_key", "gemini_api_key", "groq_api_key", "minimax_api_key", "anthropic_api_key", "openrouter_api_key"]
                     audit = BotConfigAudit(
                         bot_id=bot.id, user_id=current_user.id,
                         field=k, 
@@ -537,6 +540,9 @@ def get_my_config(current_user: User = Depends(get_current_user)):
         "gemini_api_key": mask_sensitive(current_user.gemini_api_key),
         "openai_api_key": mask_sensitive(current_user.openai_api_key),
         "minimax_api_key": mask_sensitive(current_user.minimax_api_key),
+        "anthropic_api_key": mask_sensitive(current_user.anthropic_api_key),
+        "openrouter_api_key": mask_sensitive(current_user.openrouter_api_key),
+        "openrouter_model": current_user.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free",
         "default_voice": current_user.default_voice or "Alloy",
         "default_first_message": current_user.default_first_message or "Hello!"
     }
@@ -548,6 +554,9 @@ def save_config(config: UserConfigSave, current_user: User = Depends(get_current
     current_user.gemini_api_key = config.gemini_api_key
     current_user.openai_api_key = config.openai_api_key
     current_user.minimax_api_key = config.minimax_api_key
+    current_user.anthropic_api_key = config.anthropic_api_key
+    current_user.openrouter_api_key = config.openrouter_api_key
+    current_user.openrouter_model = config.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free"
     current_user.default_voice = config.default_voice
     current_user.default_first_message = config.default_first_message
     db.commit()
@@ -655,20 +664,109 @@ async def ai_chat(req: ChatRequest, current_user: User = Depends(get_current_use
     elif provider == "gemini": api_key = current_user.gemini_api_key or os.getenv("GEMINI_API_KEY")
     elif provider == "openai": api_key = current_user.openai_api_key or os.getenv("OPENAI_API_KEY")
     elif provider == "minimax": api_key = current_user.minimax_api_key or os.getenv("MINIMAX_API_KEY")
+    elif provider == "anthropic": api_key = current_user.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+    elif provider == "openrouter": api_key = current_user.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
 
     if not api_key:
         return {"reply": "⚠️ AI API Key is missing. Please go to Settings and add your API key."}
 
-    # Use the same AI logic as the bots but for the dashboard assistant
     try:
-        from bots.restaurant.ai_utils import get_ai_response
-        # Mocking a session for the dashboard assistant
-        mock_session = {"lang": "en", "stage": "dashboard", "name": current_user.username}
-        reply = await get_ai_response("admin_dashboard", user_msg, "en", mock_session)
+        from ai_utils import (
+            call_groq_api, call_gemini_api, call_openai_api, call_anthropic_api, call_openrouter_api
+        )
+        messages = [
+            {"role": "system", "content": f"You are a helpful CRM assistant for {current_user.username}. Help with managing bots, contacts, and business operations."},
+        ] + req.messages
+        if provider == "groq":
+            reply = await call_groq_api(messages, api_key)
+        elif provider == "gemini":
+            reply = await call_gemini_api(user_msg, messages, api_key)
+        elif provider == "openai":
+            reply = await call_openai_api(messages, api_key)
+        elif provider == "anthropic":
+            reply = await call_anthropic_api(messages, api_key)
+        elif provider == "openrouter":
+            or_model = current_user.openrouter_model or "nousresearch/hermes-3-llama-3.1-405b:free"
+            reply = await call_openrouter_api(messages, api_key, model=or_model)
+        else:
+            reply = await call_groq_api(messages, api_key)
         return {"reply": reply}
     except Exception as e:
         logger.error(f"AI Chat Error: {e}")
         return {"reply": f"Sorry, I couldn't process that. Error: {str(e)}"}
+
+# ========== Test Endpoints ==========
+@router.post("/test/manager-ping")
+async def test_manager_ping(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Send a plain-text test message to MANAGER_NUMBER. Returns raw WhatsApp API response."""
+    import aiohttp as _aiohttp
+    from config import WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, MANAGER_NUMBER, WHATSAPP_API_VERSION
+    from session import SharedSession
+
+    to = MANAGER_NUMBER.lstrip("+") if MANAGER_NUMBER else ""
+    if not to:
+        return {"ok": False, "error": "MANAGER_NUMBER env var not set"}
+
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": "🔔 Wild CRM — test manager notification. If you see this, notifications are working!"}
+    }
+    try:
+        session = await SharedSession.get_session()
+        async with session.post(url, json=payload, headers=headers) as r:
+            body = await r.json()
+            note = "API accepted. If message not received: manager must first send any WhatsApp message TO the bot number to open the 24hr conversation window." if r.status < 400 else ""
+            return {"ok": r.status < 400, "status": r.status, "response": body, "to": to, "phone_id": WHATSAPP_PHONE_NUMBER_ID, "note": note}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+# ========== Plugin System ==========
+@router.get("/plugins")
+def list_available_plugins(current_user: User = Depends(get_current_user)):
+    from plugins import list_plugins
+    return list_plugins()
+
+@router.get("/bots/whatsapp/{bot_id}/plugins")
+def get_bot_plugins(bot_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    rows = db.query(BotPlugin).filter(BotPlugin.bot_id == bot_id).all()
+    return [{"plugin_name": r.plugin_name, "enabled": r.enabled, "config": json.loads(r.config_json or "{}")} for r in rows]
+
+class PluginSave(BaseModel):
+    enabled: bool = True
+    config: dict = {}
+
+@router.post("/bots/whatsapp/{bot_id}/plugins/{plugin_name}")
+def save_bot_plugin(bot_id: int, plugin_name: str, data: PluginSave,
+                    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    row = db.query(BotPlugin).filter(BotPlugin.bot_id == bot_id, BotPlugin.plugin_name == plugin_name).first()
+    if row:
+        row.enabled = data.enabled
+        row.config_json = json.dumps(data.config)
+    else:
+        row = BotPlugin(bot_id=bot_id, plugin_name=plugin_name, enabled=data.enabled, config_json=json.dumps(data.config))
+        db.add(row)
+    db.commit()
+    return {"ok": True, "plugin_name": plugin_name, "enabled": data.enabled}
+
+@router.delete("/bots/whatsapp/{bot_id}/plugins/{plugin_name}")
+def delete_bot_plugin(bot_id: int, plugin_name: str,
+                      current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bot = db.query(WhatsappBot).filter(WhatsappBot.id == bot_id, WhatsappBot.owner_id == current_user.id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+    db.query(BotPlugin).filter(BotPlugin.bot_id == bot_id, BotPlugin.plugin_name == plugin_name).delete()
+    db.commit()
+    return {"ok": True}
 
 # ========== Reservations & Orders ==========
 @router.get("/reservations")

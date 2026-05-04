@@ -29,7 +29,8 @@ from .whatsapp_handlers import (
     send_order_confirmed, send_quick_combo_upsell, send_quick_upsell,
     send_dessert_upsell, send_min_order_warning, send_returning_customer_menu,
     send_repeat_order_confirm, send_manager_action_list, send_list_message,
-    send_manager_report_menu, send_manager_week_menu, send_manager_feature_menu
+    send_manager_report_menu, send_manager_week_menu, send_manager_feature_menu,
+    send_reservation_start, send_catalog_message
 )
 from .ai_utils import get_ai_response
 from .stripe_utils import create_stripe_checkout_session
@@ -400,6 +401,148 @@ async def try_add_by_quantity(sender, session, text_lower, lang, bot=None):
     await send_cart_view(sender, session["order"], lang, bot=bot)
     session["stage"] = "menu"
     return True
+
+
+# ========== Manager report keywords ==========
+_REPORT_PERIOD_MAP = {
+    "today":      ("day",          ""),
+    "yesterday":  ("day",          "yesterday"),
+    "this week":  ("week_current", ""),
+    "week":       ("week_current", ""),
+    "last 7":     ("week_last7",   ""),
+    "7 days":     ("week_last7",   ""),
+    "this month": ("month",        ""),
+    "month":      ("month",        ""),
+    "all time":   ("all",          ""),
+    "all":        ("all",          ""),
+}
+_REPORT_TRIGGER_WORDS = {"report", "sales", "stats", "analytics", "revenue", "summary"}
+
+
+def _parse_report_period(text_lower: str):
+    """Return (period, period_value) by scanning text for period keywords."""
+    from datetime import date, timedelta
+    for phrase, (period, value) in _REPORT_PERIOD_MAP.items():
+        if phrase in text_lower:
+            if phrase == "yesterday":
+                yesterday = (date.today() - timedelta(days=1)).strftime("%d/%m/%Y")
+                return "day", yesterday
+            return period, value
+    return "week_current", ""  # default: current week
+
+
+async def _send_manager_report(sender, bot, text_lower: str, db_session):
+    """Query DB and send a text sales summary to the manager."""
+    from .report_generator import build_text_summary, _get_date_range, _filter_orders
+    period, period_value = _parse_report_period(text_lower)
+
+    # Detect delivery-type filter from message
+    if "delivery" in text_lower:
+        feature = "delivery"
+        feature_label = "Delivery Orders"
+    elif "car" in text_lower:
+        feature = "car"
+        feature_label = "Car Delivery"
+    elif "dine" in text_lower or "qr" in text_lower:
+        feature = "qr"
+        feature_label = "Dine-in"
+    else:
+        feature = "all"
+        feature_label = "All Orders"
+
+    start_dt, end_dt, period_label = _get_date_range(period, period_value)
+
+    db_local = db_session or SessionLocal()
+    close_db = db_session is None
+    try:
+        orders = db_local.query(SaleRecord).filter(
+            SaleRecord.bot_id == (bot.id if bot else None),
+            SaleRecord.created_at >= start_dt,
+            SaleRecord.created_at <= end_dt,
+        ).all()
+        reservations = db_local.query(Reservation).filter(
+            Reservation.bot_id == (bot.id if bot else None),
+            Reservation.created_at >= start_dt,
+            Reservation.created_at <= end_dt,
+        ).all() if bot else []
+    finally:
+        if close_db:
+            db_local.close()
+
+    filtered = _filter_orders(orders, start_dt, end_dt, feature)
+    text_summary = build_text_summary(filtered, reservations, period_label, feature_label)
+    await send_text_message(sender, text_summary, bot=bot)
+
+
+# ========== Manager flow handler ==========
+async def handle_manager_flow(sender, text, is_button=False, bot=None, db_session=None):
+    """Handle messages/buttons from the restaurant manager."""
+    try:
+        text_lower = text.lower().strip()
+
+        # ── Report request ────────────────────────────────────────────────────
+        if any(w in text_lower for w in _REPORT_TRIGGER_WORDS):
+            await _send_manager_report(sender, bot, text_lower, db_session)
+            return
+
+        # ── MGR_{order_id}_{ACTION} buttons from send_manager_action_list ────
+        if text.startswith("MGR_"):
+            parts = text.split("_", 2)
+            if len(parts) < 3:
+                await send_text_message(sender, "Unknown action.", bot=bot)
+                return
+            order_id = parts[1]
+            action = parts[2]
+
+            order_data = saved_orders.get(order_id, {})
+            customer_number = order_data.get("sender", "")
+
+            if action == "READY":
+                if customer_number:
+                    await send_text_message(
+                        customer_number,
+                        f"Your order #{order_id} is ready!\n\nPlease come pick it up — it's hot and waiting for you!",
+                        bot=bot
+                    )
+                await send_text_message(sender, f"Customer notified: order #{order_id} is ready.", bot=bot)
+
+            elif action == "OUTFORDELIVERY":
+                if customer_number:
+                    await send_text_message(
+                        customer_number,
+                        f"Your order #{order_id} is on the way!\n\nOur driver is heading to you. Should arrive in 15-30 minutes.",
+                        bot=bot
+                    )
+                await send_text_message(sender, f"Customer notified: order #{order_id} out for delivery.", bot=bot)
+
+            elif action == "CANCELLED":
+                if customer_number:
+                    await send_text_message(
+                        customer_number,
+                        f"We're sorry — order #{order_id} has been cancelled.\n\nPlease contact us if you have any questions.",
+                        bot=bot
+                    )
+                await send_text_message(sender, f"Customer notified: order #{order_id} cancelled.", bot=bot)
+
+            else:
+                await send_text_message(sender, f"Unknown action '{action}' for order #{order_id}.", bot=bot)
+            return
+
+        # ── Free-text fallback ────────────────────────────────────────────────
+        await send_text_message(
+            sender,
+            "*Manager Panel*\n\n"
+            "Use the action buttons sent with each order to update customers.\n\n"
+            "Order actions:\n"
+            "  Ready | Out for Delivery | Cancelled\n\n"
+            "Reports (type any of these):\n"
+            "  'report today'  |  'sales this week'  |  'stats this month'\n"
+            "  'report all time'  |  'delivery report'  |  'report last 7 days'",
+            bot=bot
+        )
+    except Exception as e:
+        print(f"MANAGER FLOW ERROR: {e}")
+        traceback.print_exc()
 
 
 # ========== Main flow handlers ==========
@@ -1153,7 +1296,9 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_language_selection(sender, bot=bot)
         else:
             session["stage"] = "menu"
-            await send_text_message(sender, t(lang, "greeting_welcome"), bot=bot)
+            _name = (bot.business_name or bot.name) if bot else "Restaurant"
+            await send_text_message(sender, f"Welcome to {_name}! 🍽️", bot=bot)
+            await send_catalog_message(sender, f"Browse our full catalog from {_name} 👇", bot=bot)
             await send_main_menu(sender, session["order"], lang, bot=bot)
         return
 

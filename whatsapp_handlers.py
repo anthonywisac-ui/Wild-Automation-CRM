@@ -30,12 +30,22 @@ async def send_text_message(to, message):
         print(f"send_text_message exception: {e}")
 
 async def send_text_message_v2(to, message, bot: WhatsappBot):
-    # Multi-tenant - uses bot-specific config
-    token = bot.meta_token or WHATSAPP_TOKEN
-    phone_id = bot.phone_number_id or WHATSAPP_PHONE_NUMBER_ID
-    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    payload = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
+    """
+    Multi-tenant text sender.
+    Routes to wa-bridge for wwebjs bots, Meta API for all others.
+    """
+    if bot and getattr(bot, "provider", "meta") == "wwebjs":
+        from providers.wwebjs import WwebjsProvider
+        provider = WwebjsProvider(bot)
+        await provider.send_text(to, message)
+        return
+
+    # Meta Cloud API path
+    token    = bot.meta_token    if bot and bot.meta_token    else WHATSAPP_TOKEN
+    phone_id = bot.phone_number_id if bot and bot.phone_number_id else WHATSAPP_PHONE_NUMBER_ID
+    url      = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload  = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": message}}
     try:
         session = await SharedSession.get_session()
         async with session.post(url, json=payload, headers=headers) as r:
