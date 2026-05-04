@@ -509,5 +509,15 @@ async def send_manager_feature_menu(to, bot=None):
     }
     await _send_request(payload, bot)
 
+async def send_reservation_start(sender, bot=None):
+    await send_text_message(
+        sender,
+        f"📅 *Table Reservation*\n\nGreat! Let's book a table at {_bot_name(bot)}.\n\n"
+        "Please tell me:\n1️⃣ *Date* (e.g. Tomorrow, 25 April, Friday)\n"
+        "2️⃣ *Time* (e.g. 7:30 PM)\n3️⃣ *Party size* (how many guests?)\n\n"
+        "Start with the *date* 👇",
+        bot=bot
+    )
+
 async def send_whatsapp_to_number(to_number, message, bot=None):
     await send_text_message(to_number, message, bot)
