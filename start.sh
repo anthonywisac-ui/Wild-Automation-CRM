@@ -14,6 +14,23 @@ for lock_name in SingletonLock SingletonCookie SingletonSocket; do
     done
 done
 
+# ── Clean Chromium cache to free volume space ──────────────────────────────────
+# Cache dirs are regenerated automatically — safe to wipe on every startup
+echo "[start] Cleaning Chromium cache directories..."
+for cache_dir in Cache "Code Cache" GPUCache "Network Persistent State" "Service Worker/CacheStorage" "blob_storage" "databases" "VideoDecodeStats"; do
+    find /app/wa-bridge/sessions -type d -name "$cache_dir" 2>/dev/null | while IFS= read -r d; do
+        du -sh "$d" 2>/dev/null | awk "{print \"[start] Removing cache: $d (\" \$1 \")\"}"
+        rm -rf "$d"
+    done
+done
+echo "[start] Chromium cache cleaned."
+
+# ── Compact SQLite DB (reclaim space from deleted rows) ───────────────────────
+if [ -f /app/platform.db ]; then
+    echo "[start] Running SQLite VACUUM..."
+    sqlite3 /app/platform.db "VACUUM; PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null && echo "[start] SQLite VACUUM done." || echo "[start] sqlite3 not available, skipping VACUUM."
+fi
+
 # ── Start wa-bridge (stdout/stderr go directly to Railway logs) ────────────────
 start_bridge() {
     cd /app/wa-bridge
