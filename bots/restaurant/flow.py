@@ -1302,6 +1302,35 @@ async def _handle_flow_inner(sender, text, is_button, bot, session, db_session=N
             await send_main_menu(sender, session["order"], lang, bot=bot)
         return
 
+    # ── WhatsApp Catalog: 'ADD_ITEMID:QTY|...' format (from order msg_type) ──
+    if "|" in text and all(part.startswith("ADD_") for part in text.split("|")):
+        MENU = get_bot_menu(bot.phone_number_id if bot else None, db_session=db_session)
+        added_names = []
+        for part in text.split("|"):
+            try:
+                rest = part.replace("ADD_", "")
+                if ":" in rest:
+                    item_id, qty_str = rest.rsplit(":", 1)
+                    qty = int(qty_str)
+                else:
+                    item_id, qty = rest, 1
+                item_id = item_id.upper()
+                _cat, found_item = find_item(item_id, MENU)
+                if found_item:
+                    if item_id in session["order"]:
+                        session["order"][item_id]["qty"] += qty
+                    else:
+                        session["order"][item_id] = {"item": found_item, "qty": qty}
+                    added_names.append(f"{found_item['name']} x{qty}")
+            except Exception as _e:
+                print(f"Catalog order parse error: {_e}")
+        if added_names:
+            session["stage"] = "confirm"
+            items_text = ", ".join(added_names)
+            await send_text_message(sender, f"✅ Added to cart: {items_text}", bot=bot)
+            await send_cart_view(sender, session["order"], lang, bot=bot)
+        return
+
     if is_menu_request(text_lower):
         session["stage"] = "menu"
         await send_main_menu(sender, session["order"], lang, bot=bot)
