@@ -9,7 +9,7 @@ from fastapi.responses import PlainTextResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from db import get_db, WhatsappBot, WebhookEvent, ChatHistory, Contact, SessionLocal, User, log_bot_event
 from ai_utils import get_ai_response
-from session import SharedSession
+from session import SharedSessionh
 from utils import truncate_title
 
 router = APIRouter(tags=["WhatsApp Webhook"])
@@ -185,6 +185,19 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
             # Template button reply
             is_button = True
             user_msg = message.get("button", {}).get("payload", "")
+
+        elif msg_type == "order":
+            # WhatsApp Catalog se user ne items select kiye
+            is_button = True
+            order_data = message.get("order", {})
+            order_items = order_data.get("product_items", [])
+            if order_items:
+                order_parts = []
+                for item in order_items:
+                    pid = item.get("product_retailer_id", "").upper()
+                    qty = item.get("quantity", 1)
+                    order_parts.append(f"ADD_{pid}:{qty}")
+                user_msg = "|".join(order_parts)
 
         if not user_msg:
             db.commit()
