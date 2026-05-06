@@ -251,7 +251,8 @@ def get_my_bots(current_user: User = Depends(get_current_user), db: Session = De
         "created_at": b.created_at.isoformat() if b.created_at else None
     } for b in bots]
 
-@router.post("/bots/whatsapp")
+# DISABLED TEMPORARILY: QR-scan auto bot creation causing issues
+# @router.post("/bots/whatsapp")
 def create_whatsapp_bot_endpoint(bot_data: WhatsappBotCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     # ✅ FIX: Check globally for name uniqueness to avoid IntegrityError (500)
     existing = db.query(WhatsappBot).filter(WhatsappBot.name == bot_data.name).first()
