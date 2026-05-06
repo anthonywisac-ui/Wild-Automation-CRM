@@ -9,7 +9,7 @@ from fastapi.responses import PlainTextResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from db import get_db, WhatsappBot, WebhookEvent, ChatHistory, Contact, SessionLocal, User, log_bot_event
 from ai_utils import get_ai_response
-from session import SharedSessionh
+from session import SharedSession
 from utils import truncate_title
 
 router = APIRouter(tags=["WhatsApp Webhook"])
