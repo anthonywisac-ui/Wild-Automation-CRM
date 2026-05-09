@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 import time
@@ -59,6 +60,11 @@ def _get_routed_bot(sender: str, bots: list):
     return None
 
 def _set_routed_bot(sender: str, bot_id: int):
+    if len(_bot_routing) > 50000:
+        now = time.time()
+        stale = [k for k, v in _bot_routing.items() if v["expires"] < now]
+        for k in stale:
+            del _bot_routing[k]
     _bot_routing[sender] = {"bot_id": bot_id, "expires": time.time() + _ROUTING_TTL}
 
 async def _send_bot_selector(sender: str, bots: list, cred_bot):
@@ -80,6 +86,11 @@ _rate_limit: dict = {}  # {sender: [timestamps]}
 def _is_rate_limited(sender: str, max_msgs: int = 10, window_secs: int = 10) -> bool:
     """Block senders sending > max_msgs in window_secs seconds."""
     now = time.time()
+    if len(_rate_limit) > 50000:
+        cutoff = now - window_secs
+        stale = [k for k, v in _rate_limit.items() if not v or v[-1] < cutoff]
+        for k in stale:
+            del _rate_limit[k]
     times = _rate_limit.get(sender, [])
     times = [t for t in times if now - t < window_secs]
     times.append(now)
@@ -204,8 +215,7 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
             return {"status": "ok"}
 
         # ── QR Table+Bot pre-fill: "TABLE_3_BOT_5" ──────────────────────────
-        import re as _re
-        _qr_match = _re.match(r"^TABLE_(\w+)_BOT_(\d+)$", user_msg)
+        _qr_match = re.match(r"^TABLE_(\w+)_BOT_(\d+)$", user_msg)
         if _qr_match:
             table_num, target_bot_id = _qr_match.group(1), int(_qr_match.group(2))
             target = next((b for b in bots if b.id == target_bot_id), None)
@@ -315,15 +325,15 @@ async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks, 
         # ── 5. Route to correct handler ──────────────────────────────────────
         if bot.forwarding_url:
             # ── FORWARDING MODE: send raw payload to external engine (e.g. Railway) ──
-            import aiohttp
-            async with aiohttp.ClientSession() as http_session:
-                try:
-                    async with http_session.post(
-                        bot.forwarding_url, json=data, timeout=aiohttp.ClientTimeout(total=10)
-                    ) as resp:
-                        logger.info(f"Forwarded to {bot.forwarding_url}, status: {resp.status}")
-                except Exception as fe:
-                    logger.error(f"Forwarding failed for bot {bot.name}: {fe}")
+            try:
+                import aiohttp
+                http_session = await SharedSession.get_session()
+                async with http_session.post(
+                    bot.forwarding_url, json=data, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    logger.info(f"Forwarded to {bot.forwarding_url}, status: {resp.status}")
+            except Exception as fe:
+                logger.error(f"Forwarding failed for bot {bot.name}: {fe}")
 
         elif bot.bot_type == "real_estate":
             # ── REAL ESTATE ENGINE ──────────────────────────────────────────

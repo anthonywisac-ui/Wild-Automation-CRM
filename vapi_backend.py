@@ -191,9 +191,9 @@ async def vapi_webhook(
     x_vapi_signature: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
-    # Read raw body for signature verification
+    # Read raw body once; parse manually to avoid double-consuming the stream
     body = await request.body()
-    payload = await request.json()
+    payload = json.loads(body)
     
     # Get Vapi secret from env (you should set VAPI_WEBHOOK_SECRET)
     vapi_secret = os.getenv("VAPI_WEBHOOK_SECRET", "")
@@ -247,20 +247,21 @@ async def vapi_webhook(
                 contact.notes = (contact.notes or "") + f"\n[{datetime.utcnow()}] Call duration {duration}s\n{transcript[:200]}"
             db.commit()
         
-        # Create Call record
-        outcome = detect_sentiment(transcript)
-        call_record = Call(
-            owner_id=agent.owner_id if agent else 1,  # fallback to user 1 if no agent found
-            contact_name=extract_name_from_transcript(transcript) if transcript else "Unknown",
-            phone=caller_number,
-            direction="Inbound",
-            duration_minutes=round(duration / 60, 1),
-            outcome=outcome,
-            agent=agent.name if agent else "Unknown",
-            notes=transcript[:500]
-        )
-        db.add(call_record)
-        db.commit()
+        # Create Call record only when we know the owner
+        if agent:
+            outcome = detect_sentiment(transcript)
+            call_record = Call(
+                owner_id=agent.owner_id,
+                contact_name=extract_name_from_transcript(transcript) if transcript else "Unknown",
+                phone=caller_number,
+                direction="Inbound",
+                duration_minutes=round(duration / 60, 1),
+                outcome=outcome,
+                agent=agent.name,
+                notes=transcript[:500]
+            )
+            db.add(call_record)
+            db.commit()
     
     # For other events (call.started, transcript.ready), just log
     return {"status": "ok", "event": event_type}

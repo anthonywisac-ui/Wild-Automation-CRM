@@ -602,7 +602,7 @@ def update_admin_settings(data: dict, admin: User = Depends(require_admin), db: 
 def get_bot_status_dashboard(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     bots = db.query(WhatsappBot).all()
     return [{
-        "id": b.id, "name": b.name, "owner": b.owner.username,
+        "id": b.id, "name": b.name, "owner": b.owner.username if b.owner else "Unknown",
         "status": b.status, "last_health_check": b.last_health_check.isoformat() if b.last_health_check else None
     } for b in bots]
 
@@ -645,10 +645,8 @@ def seed_demo_bots(admin: User = Depends(require_admin), db: Session = Depends(g
         )
         db.add(new_bot)
         db.flush()
-        admin_bots = admin.bots
-        if b["name"] not in admin_bots:
-            admin_bots.append(b["name"])
-            admin.bots = admin_bots
+        if b["name"] not in (admin.bots or []):
+            admin.bots = (admin.bots or []) + [b["name"]]
         created.append(b["name"])
     db.commit()
     log_audit(db, admin.id, "SEED_DEMO_BOTS", f"Created {len(created)}, skipped {len(skipped)}")

@@ -30,6 +30,7 @@ populate_dummy_data(db)
 db.close()
 
 app = FastAPI(title="WhatsApp Bot Platform", version="2.0.0")
+static_dir = os.path.join(os.path.dirname(__file__), "cms", "static")
 
 # ========== Security Middleware ==========
 @app.middleware("http")
@@ -204,7 +205,6 @@ if BOT_TYPE in allowed:
 else:
     logger.warning(f"⚠️ BOT_TYPE '{BOT_TYPE}' not found in bots/")
 
-static_dir = os.path.join(os.path.dirname(__file__), "cms", "static")
 if os.path.exists(static_dir):
     app.mount("/cms/static", StaticFiles(directory=static_dir, html=True),
               name="cms_static")
@@ -212,28 +212,21 @@ if os.path.exists(static_dir):
 # ========== Startup Event ==========
 @app.on_event("startup")
 def create_initial_admin():
-    from db import SessionLocal
-    db = SessionLocal()
-    
     # Validate required environment variables
     required_env_vars = ["JWT_SECRET_KEY"]
     if os.getenv("ENVIRONMENT") == "production":
         required_env_vars.extend(["VAPI_WEBHOOK_SECRET"])
-    
+
     for var in required_env_vars:
         if not os.getenv(var) or os.getenv(var) == "your-secret-key-change-me":
             logger.warning(f"⚠️ {var} not properly configured in .env")
-    
-    # Auto-run setup_bot logic to ensure production bot is configured
+
     try:
         setup_platform()
-        # Load customer profiles into memory for restaurant bot
         from db import load_customer_profiles_from_db
         load_customer_profiles_from_db()
     except Exception as e:
         logger.warning(f"Auto-setup failed: {e}")
-
-    db.close()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
