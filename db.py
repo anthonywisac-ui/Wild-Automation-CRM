@@ -430,8 +430,37 @@ def save_session_data(db: Session, bot_id: int, phone: str, data: dict):
 
 # ========== Dummy Data & Migration ==========
 def populate_dummy_data(db: Session):
-    if not get_user_by_username(db, "admin"):
-        create_user(db, "admin", os.getenv("ADMIN_PASSWORD", "admin123"), role="admin")
+    import logging
+    _log = logging.getLogger(__name__)
+
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    admin = get_user_by_username(db, "admin")
+
+    if admin is None:
+        # Admin does not exist at all — create fresh
+        create_user(db, "admin", admin_password, role="admin")
+        _log.info("Admin user created with fresh password hash.")
+    else:
+        # Admin exists — verify the stored hash is valid and matches the
+        # configured password.  If the hash is corrupted (e.g. after a DB
+        # migration) or the password no longer matches, reset it so the
+        # admin can always log in with the value from ADMIN_PASSWORD.
+        hash_ok = False
+        try:
+            hash_ok = verify_password(admin_password, admin.hashed_password)
+        except Exception:
+            hash_ok = False
+
+        if not hash_ok:
+            admin.hashed_password = hash_password(admin_password)
+            db.commit()
+            _log.warning(
+                "Admin password hash was invalid or did not match ADMIN_PASSWORD — "
+                "reset to a fresh hash on startup."
+            )
+        else:
+            _log.info("Admin user OK — password hash verified successfully.")
+
     if not get_user_by_username(db, "user1"):
         create_user(db, "user1", "user123", role="user")
 

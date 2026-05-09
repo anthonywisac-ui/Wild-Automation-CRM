@@ -26,8 +26,14 @@ logger = logging.getLogger(__name__)
 migrate_db()
 
 db = SessionLocal()
-populate_dummy_data(db)
-db.close()
+try:
+    logger.info("Running startup admin check via populate_dummy_data()...")
+    populate_dummy_data(db)
+    logger.info("Startup admin check complete.")
+except Exception as _e:
+    logger.error(f"populate_dummy_data() failed on startup: {_e}")
+finally:
+    db.close()
 
 app = FastAPI(title="WhatsApp Bot Platform", version="2.0.0")
 static_dir = os.path.join(os.path.dirname(__file__), "cms", "static")
