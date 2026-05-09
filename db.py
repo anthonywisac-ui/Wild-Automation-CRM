@@ -458,25 +458,28 @@ def log_bot_event(bot_id: int, event_type: str, details: str = "", customer_phon
             pass
 
 def migrate_db():
-    Base.metadata.create_all(bind=engine)
-    # Add new columns to existing tables without dropping them
-    with engine.connect() as conn:
-        inspector = inspect(engine)
-        for table_name, columns in [
-            ("orders", ["delivery_type TEXT DEFAULT 'pickup'"]),
-            ("whatsapp_bots", [
-                "provider TEXT DEFAULT 'meta'",
-                "wwebjs_session TEXT",
-                "wwebjs_bridge_url TEXT",
-            ]),
-        ]:
-            existing_cols = {c["name"] for c in inspector.get_columns(table_name)} if table_name in inspector.get_table_names() else set()
-            for col_def in columns:
-                col_name = col_def.split()[0]
-                if col_name not in existing_cols:
-                    try:
-                        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_def}"))
-                        conn.commit()
-                    except Exception:
-                        pass
-    print("Database Migrated Successfully.")
+    try:
+        Base.metadata.create_all(bind=engine)
+        # Add new columns to existing tables without dropping them
+        with engine.connect() as conn:
+            inspector = inspect(engine)
+            for table_name, columns in [
+                ("orders", ["delivery_type TEXT DEFAULT 'pickup'"]),
+                ("whatsapp_bots", [
+                    "provider TEXT DEFAULT 'meta'",
+                    "wwebjs_session TEXT",
+                    "wwebjs_bridge_url TEXT",
+                ]),
+            ]:
+                existing_cols = {c["name"] for c in inspector.get_columns(table_name)} if table_name in inspector.get_table_names() else set()
+                for col_def in columns:
+                    col_name = col_def.split()[0]
+                    if col_name not in existing_cols:
+                        try:
+                            conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_def}"))
+                            conn.commit()
+                        except Exception:
+                            pass
+        print("Database Migrated Successfully.")
+    except Exception as e:
+        print(f"[DB] Warning: migrate_db failed: {e}. App will start but DB operations may fail until connection is restored.")
