@@ -1,6 +1,7 @@
 # database.py - SaaS Hardened Version
 import os
 import json
+import logging
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, ForeignKey, Boolean, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
@@ -429,9 +430,27 @@ def save_session_data(db: Session, bot_id: int, phone: str, data: dict):
     db.commit()
 
 # ========== Dummy Data & Migration ==========
+logger = logging.getLogger(__name__)
+
 def populate_dummy_data(db: Session):
-    if not get_user_by_username(db, "admin"):
-        create_user(db, "admin", os.getenv("ADMIN_PASSWORD", "admin123"), role="admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    admin = get_user_by_username(db, "admin")
+    if not admin:
+        create_user(db, "admin", admin_password, role="admin")
+        logger.info("Admin user created with fresh password hash.")
+    else:
+        # Verify the stored hash is valid; replace it if corrupted or mismatched
+        hash_valid = False
+        try:
+            hash_valid = verify_password(admin_password, admin.hashed_password)
+        except Exception as e:
+            logger.warning(f"Admin password hash verification raised an exception (hash likely corrupted): {e}")
+        if not hash_valid:
+            admin.hashed_password = hash_password(admin_password)
+            db.commit()
+            logger.info("Admin password hash was invalid or corrupted — replaced with a fresh hash.")
+        else:
+            logger.info("Admin password hash is valid. No changes needed.")
     if not get_user_by_username(db, "user1"):
         create_user(db, "user1", "user123", role="user")
 
