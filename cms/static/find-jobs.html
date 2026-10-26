@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Find Jobs</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #121b2d;
+        --card: #182338;
+        --card2: #1b2d4a;
+        --line: rgba(255,255,255,0.08);
+        --text: #edf3ff;
+        --muted: #9cb0d1;
+        --primary: #6aa7ff;
+        --primary-2: #8d7dff;
+        --success: #35d39a;
+        --danger: #ff7c7c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: linear-gradient(180deg, var(--bg), #0d1628);
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px 20px 60px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+        margin-bottom: 24px;
+      }
+      .header h1 {
+        margin: 0;
+        font-size: clamp(2rem, 4vw, 3rem);
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        background: rgba(106, 167, 255, 0.12);
+        border: 1px solid var(--line);
+        color: var(--primary);
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+      .status {
+        margin: 12px 0 20px;
+        color: var(--muted);
+        min-height: 24px;
+      }
+      .jobs-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+      .job-card {
+        background: linear-gradient(180deg, var(--card), var(--card2));
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.18);
+      }
+      .job-card h3 {
+        margin: 0 0 10px;
+        font-size: 1.15rem;
+        line-height: 1.4;
+      }
+      .job-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0 14px;
+      }
+      .pill {
+        background: rgba(141, 125, 255, 0.14);
+        border: 1px solid rgba(141, 125, 255, 0.28);
+        color: #d9d0ff;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.72rem;
+        font-weight: 700;
+      }
+      .job-body {
+        color: var(--muted);
+        line-height: 1.6;
+        margin: 0 0 16px;
+        white-space: pre-wrap;
+      }
+      .job-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+      }
+      .date {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .cta {
+        color: white;
+        background: linear-gradient(135deg, var(--primary), var(--primary-2));
+        text-decoration: none;
+        padding: 9px 14px;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 0.8rem;
+      }
+      .empty {
+        color: var(--muted);
+        padding: 20px;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+        background: rgba(255,255,255,0.02);
+      }
+      @media (max-width: 640px) {
+        .header {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header">
+        <h1>Find Jobs</h1>
+        <div class="badge">Repository Jobs</div>
+      </div>
+      <div id="status" class="status">Loading jobs…</div>
+      <div id="jobs" class="jobs-grid"></div>
+    </div>
+
+    <script>
+      async function loadJobs() {
+        const jobsEl = document.getElementById('jobs');
+        const statusEl = document.getElementById('status');
+
+        try {
+          statusEl.textContent = 'Loading job listings from the repository…';
+          const response = await fetch('/api/find-jobs');
+          if (!response.ok) {
+            throw new Error('Failed to fetch jobs');
+          }
+          const data = await response.json();
+          const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+
+          if (!jobs.length) {
+            jobsEl.innerHTML = '<div class="empty">No open jobs found in this repository right now.</div>';
+            statusEl.textContent = 'No jobs available';
+            return;
+          }
+
+          jobsEl.innerHTML = jobs.map(job => {
+            const labels = (job.labels || []).slice(0, 4).map(label => `<span class="pill">${escapeHtml(label)}</span>`).join('');
+            const date = job.created_at ? new Date(job.created_at).toLocaleDateString() : 'Unknown date';
+            const body = (job.body || '').replace(/\r\n/g, '\n').trim();
+            const text = body ? body.slice(0, 220) + (body.length > 220 ? '…' : '') : 'No description provided.';
+
+            return `
+              <article class="job-card">
+                <h3>${escapeHtml(job.title || 'Untitled job')}</h3>
+                <div class="job-meta">${labels || '<span class="pill">General</span>'}</div>
+                <p class="job-body">${escapeHtml(text)}</p>
+                <div class="job-footer">
+                  <span class="date">${date}</span>
+                  <a class="cta" href="${job.html_url || '#'}" target="_blank" rel="noreferrer">View Job</a>
+                </div>
+              </article>
+            `;
+          }).join('');
+
+          statusEl.textContent = `Showing ${jobs.length} job listing${jobs.length > 1 ? 's' : ''}`;
+        } catch (error) {
+          console.error(error);
+          jobsEl.innerHTML = '<div class="empty">Unable to load jobs right now. Please try again later.</div>';
+          statusEl.textContent = 'Error loading jobs';
+        }
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      loadJobs();
+    </script>
+  </body>
+</html>
