@@ -2,6 +2,7 @@ import os
 import importlib
 import logging
 import json
+import requests
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -31,6 +32,40 @@ db.close()
 
 app = FastAPI(title="WhatsApp Bot Platform", version="2.0.0")
 static_dir = os.path.join(os.path.dirname(__file__), "cms", "static")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "anthonywisac-ui/Wild-Automation-CRM")
+
+
+def fetch_repo_jobs():
+    repo = GITHUB_REPO.strip().strip("/")
+    url = f"https://api.github.com/repos/{repo}/issues?state=open&per_page=100"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Wild-Automation-CRM/1.0",
+    }
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    response = requests.get(url, headers=headers, timeout=20)
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"GitHub API failed: {response.status_code}")
+
+    jobs = []
+    for item in response.json():
+        if "pull_request" in item:
+            continue
+        jobs.append({
+            "id": item.get("id"),
+            "title": item.get("title"),
+            "body": item.get("body"),
+            "html_url": item.get("html_url"),
+            "state": item.get("state"),
+            "created_at": item.get("created_at"),
+            "updated_at": item.get("updated_at"),
+            "labels": [label.get("name") for label in item.get("labels", []) if label.get("name")],
+        })
+    return jobs
+
 
 # ========== Security Middleware ==========
 @app.middleware("http")
@@ -70,6 +105,18 @@ async def root():
     if os.path.exists(index_path):
         return FileResponse(index_path)
     return {"message": "Welcome to Wild Automations Bot Platform. CRM not found."}
+
+@app.get("/find-jobs")
+async def find_jobs_page():
+    jobs_path = os.path.join(static_dir, "find-jobs.html")
+    if os.path.exists(jobs_path):
+        return FileResponse(jobs_path)
+    return {"message": "find-jobs.html not found"}
+
+@app.get("/api/find-jobs")
+async def find_jobs_api():
+    jobs = fetch_repo_jobs()
+    return {"source_repo": GITHUB_REPO, "jobs": jobs}
 
 @app.get("/crm")
 async def crm_redirect():
@@ -184,6 +231,7 @@ if ALLOW_DEBUG:
         create_user(db, "admin", admin_password, role="admin")
         logger.info("Admin user created via /fix-admin")
         return {"msg": "Admin created"}
+
 
 def get_allowed_bot_types():
     bots_dir = "bots"
